@@ -12,8 +12,8 @@
 #
 # Usage:
 #
-#   curl -fsSL -o build.sh https://raw.githubusercontent.com/marcgauthier/zabbix-proxy/refs/heads/main/zabbix-kickstart.cfg
-#   curl -fsSL -o build.sh https://raw.githubusercontent.com/marcgauthier/zabbix-proxy/refs/heads/main/zabbix-proxy-build.sh
+#   curl -fsSL -o zabbix-kickstart.cfg https://raw.githubusercontent.com/marcgauthier/zabbix-proxy/refs/heads/main/zabbix-kickstart.cfg
+#   curl -fsSL -o zabbix-proxy-build.sh https://raw.githubusercontent.com/marcgauthier/zabbix-proxy/refs/heads/main/zabbix-proxy-build.sh
 #   chmod +x build.sh
 #   ./build.sh
 #
