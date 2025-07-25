@@ -20,9 +20,14 @@
 set -euo pipefail
 IFS=$'\n\t'
 
+
 #------------------------------------------------------------------------------
 # GLOBAL CONFIGURATION VARIABLES
 #------------------------------------------------------------------------------
+# URL of the AlmaLinux minimal ISO to download if missing.
+# Adjust the URL to point to the desired AlmaLinux 9 minimal ISO.
+ALMA_ISO_URL="https://repo.almalinux.org/almalinux/9/isos/x86_64/AlmaLinux-9-x86_64-minimal.iso"
+#
 # Path to the AlmaLinux minimal ISO you have downloaded.
 ALMA_ISO_PATH="/root/downloads/AlmaLinux-9-x86_64-minimal.iso"
 #
@@ -41,10 +46,25 @@ TMP_DIR="/tmp/lmc"
 #------------------------------------------------------------------------------
 # VERIFY GLOBAL VARIABLES
 #------------------------------------------------------------------------------
+echo "ALMA_ISO_URL   = $ALMA_ISO_URL"
 echo "ALMA_ISO_PATH is set to:   $ALMA_ISO_PATH"
 echo "ZABBIX_REPO_RPM is set to: $ZABBIX_REPO_RPM"
 echo
 
+#------------------------------------------------------------------------------
+# 0. Ensure ISO is present (download if missing)
+#------------------------------------------------------------------------------
+echo "==> Step 0: Ensure AlmaLinux ISO"
+if [[ ! -f "$ALMA_ISO_PATH" ]]; then
+  echo "AlmaLinux ISO not found at $ALMA_ISO_PATH"
+  echo "Downloading from $ALMA_ISO_URL..."
+  mkdir -p "$(dirname "$ALMA_ISO_PATH")"
+  curl -fsSL -o "$ALMA_ISO_PATH" "$ALMA_ISO_URL"
+  echo "Downloaded ISO to $ALMA_ISO_PATH"
+else
+  echo "Found ISO at $ALMA_ISO_PATH"
+fi
+echo
 
 #------------------------------------------------------------------------------
 # 1. Prepare the Base System
