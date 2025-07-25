@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #
-# build.sh
+# zabbix‑proxy‑build.sh
 #
 # This script automates the creation of a custom AlmaLinux ISO
 # preloaded with Zabbix Proxy and its dependencies.
@@ -14,8 +14,8 @@
 #
 #   curl -fsSL -o zabbix-kickstart.cfg https://raw.githubusercontent.com/marcgauthier/zabbix-proxy/refs/heads/main/zabbix-kickstart.cfg
 #   curl -fsSL -o zabbix-proxy-build.sh https://raw.githubusercontent.com/marcgauthier/zabbix-proxy/refs/heads/main/zabbix-proxy-build.sh
-#   chmod +x build.sh
-#   ./build.sh
+#   chmod +x zabbix‑proxy‑build.sh
+#   ./zabbix‑proxy‑build.sh
 #
 set -euo pipefail
 IFS=$'\n\t'
@@ -105,7 +105,8 @@ echo "Installing 'Development Tools' group for compilers, make, etc..."
 dnf groupinstall -y "Development Tools"
 
 echo "Installing lorax, anaconda, and pykickstart..."
-dnf install -y lorax anaconda pykickstart
+dnf install -y lorax anaconda-tui python3-kickstart
+
 
 #------------------------------------------------------------------------------
 # 4. Build the Custom ISO with livemedia-creator
