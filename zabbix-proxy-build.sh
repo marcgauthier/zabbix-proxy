@@ -386,9 +386,8 @@ download_zabbix_packages() {
     done
     
     # Download packages with all dependencies
-    if ! dnf install --downloadonly \
+    if ! dnf download --resolve --alldeps \
         --downloaddir="$PKG_DIR" \
-        --resolve \
         "${packages[@]}"; then
         log_error "Failed to download Zabbix packages"
         exit 1
