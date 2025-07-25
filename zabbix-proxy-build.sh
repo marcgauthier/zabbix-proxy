@@ -374,19 +374,21 @@ download_zabbix_packages() {
     # Create package directory
     mkdir -p "$PKG_DIR"
     
-    # List of packages to download
+    # List of packages to download (including dependencies)
     local packages=(
         "zabbix-proxy-mysql"
         "zabbix-agent2"
     )
     
-    log_info "Downloading packages to: $PKG_DIR"
+    log_info "Downloading packages with dependencies to: $PKG_DIR"
     for package in "${packages[@]}"; do
         log_info "Downloading package: $package"
     done
     
+    # Download packages with all dependencies
     if ! dnf install --downloadonly \
         --downloaddir="$PKG_DIR" \
+        --resolve \
         "${packages[@]}"; then
         log_error "Failed to download Zabbix packages"
         exit 1
@@ -404,6 +406,55 @@ download_zabbix_packages() {
     log_success "Downloaded $pkg_count RPM packages to $PKG_DIR"
 }
 
+create_local_repository() {
+    log_info "Creating local repository from downloaded packages..."
+    
+    # Install createrepo_c if not present
+    if ! command -v createrepo_c >/dev/null 2>&1; then
+        log_info "Installing createrepo_c..."
+        if ! dnf install -y createrepo_c; then
+            log_error "Failed to install createrepo_c"
+            exit 1
+        fi
+    fi
+    
+    # Create repository metadata
+    log_info "Creating repository metadata in $PKG_DIR"
+    if ! createrepo_c "$PKG_DIR"; then
+        log_error "Failed to create repository metadata"
+        exit 1
+    fi
+    
+    # Verify repository was created
+    if [[ ! -d "$PKG_DIR/repodata" ]]; then
+        log_error "Repository metadata not found in $PKG_DIR/repodata"
+        exit 1
+    fi
+    
+    log_success "Local repository created successfully"
+}
+
+create_repository_file() {
+    log_info "Creating repository configuration file..."
+    
+    local repo_file="$PKG_DIR/zabbix-local.repo"
+    
+    cat > "$repo_file" << EOF
+[zabbix-local]
+name=Local Zabbix Repository
+baseurl=file://$PKG_DIR
+enabled=1
+gpgcheck=0
+EOF
+    
+    if [[ ! -f "$repo_file" ]]; then
+        log_error "Failed to create repository file: $repo_file"
+        exit 1
+    fi
+    
+    log_success "Repository configuration created: $repo_file"
+}
+
 install_build_tools() {
     log_info "Installing ISO build tools..."
     
@@ -419,6 +470,7 @@ install_build_tools() {
         "lorax"
         "anaconda-tui"
         "python3-kickstart"
+        "createrepo_c"
     )
     
     log_info "Installing ISO creation tools: ${build_tools[*]}"
@@ -430,6 +482,12 @@ install_build_tools() {
     # Verify livemedia-creator is available
     if ! command -v livemedia-creator >/dev/null 2>&1; then
         log_error "livemedia-creator not found after installation"
+        exit 1
+    fi
+    
+    # Verify createrepo_c is available
+    if ! command -v createrepo_c >/dev/null 2>&1; then
+        log_error "createrepo_c not found after installation"
         exit 1
     fi
     
@@ -466,26 +524,45 @@ create_custom_iso() {
         exit 5
     fi
     
+    if [[ ! -d "$PKG_DIR/repodata" ]]; then
+        log_error "Repository metadata not found in $PKG_DIR/repodata"
+        exit 5
+    fi
+    
+    # Create a modified kickstart file that includes our local repository
+    local modified_ks="$TMP_DIR/modified-kickstart.cfg"
+    log_info "Creating modified kickstart file: $modified_ks"
+    
+    # Copy original kickstart and add our repository
+    cp "$KS_FILE" "$modified_ks"
+    
+    # Add local repository configuration to kickstart
+    cat >> "$modified_ks" << EOF
+
+# Local Zabbix repository added by build script
+repo --name="zabbix-local" --baseurl="file://$PKG_DIR"
+EOF
+    
     # Start the ISO build process
     log_info "Starting livemedia-creator..."
     log_info "This process may take 30-60 minutes depending on your system"
     log_info "ISO Source: $ALMA_ISO_PATH"
-    log_info "Kickstart: $KS_FILE"
-    log_info "Package injection: $PKG_DIR -> /build/zabbix-pkgs"
+    log_info "Kickstart: $modified_ks"
+    log_info "Local repository: $PKG_DIR"
     
-    # Run livemedia-creator with comprehensive options
+    # Run livemedia-creator with the corrected approach
     local lmc_cmd=(
         "livemedia-creator"
         "--make-iso"
         "--iso=$ALMA_ISO_PATH"
-        "--ks=$KS_FILE"
-        "--initrd-inject=$PKG_DIR:/build/zabbix-pkgs"
+        "--ks=$modified_ks"
         "--title=Alma-Zabbix-Proxy"
         "--project=AlmaLinux-Zabbix"
         "--releasever=9"
         "--tmp=$TMP_DIR"
         "--resultdir=$RESULT_DIR"
         "--logfile=$RESULT_DIR/build.log"
+        "--no-virt"
     )
     
     log_info "Executing: ${lmc_cmd[*]}"
@@ -493,6 +570,13 @@ create_custom_iso() {
     if ! "${lmc_cmd[@]}"; then
         log_error "livemedia-creator failed"
         log_error "Check the build log at: $RESULT_DIR/build.log"
+        
+        # Show last few lines of the log for immediate debugging
+        if [[ -f "$RESULT_DIR/build.log" ]]; then
+            log_info "Last 20 lines of build log:"
+            tail -n 20 "$RESULT_DIR/build.log" || true
+        fi
+        
         exit 1
     fi
     
@@ -502,6 +586,11 @@ create_custom_iso() {
     
     if [[ -z "$output_iso" ]] || [[ ! -f "$output_iso" ]]; then
         log_error "No output ISO found in $RESULT_DIR"
+        
+        # List what files were actually created
+        log_info "Files in result directory:"
+        ls -la "$RESULT_DIR" || true
+        
         exit 1
     fi
     
@@ -555,9 +644,11 @@ main() {
     install_base_packages
     setup_zabbix_repository
     
-    # Step 3: Download packages
-    log_info "==> Step 4: Download Zabbix packages"
+    # Step 3: Download packages and create repository
+    log_info "==> Step 4: Download Zabbix packages and create local repository"
     download_zabbix_packages
+    create_local_repository
+    create_repository_file
     
     # Step 4: Install build tools
     log_info "==> Step 5: Install build tools"
