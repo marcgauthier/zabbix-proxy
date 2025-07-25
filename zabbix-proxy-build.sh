@@ -94,7 +94,7 @@ echo "Downloading Zabbix Proxy (MySQL) and Agent RPMs into $PKG_DIR..."
 dnf install --downloadonly \
     --downloaddir="$PKG_DIR" \
     zabbix-proxy-mysql \
-    zabbix-agent
+    zabbix-agent2
 
 #------------------------------------------------------------------------------
 # 3. Install Tools for Custom ISO Creation
