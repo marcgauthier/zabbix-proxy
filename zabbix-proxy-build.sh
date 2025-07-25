@@ -38,7 +38,7 @@ ZABBIX_REPO_RPM="https://repo.zabbix.com/zabbix/7.4/release/alma/9/noarch/zabbix
 # Directory under which to stash downloaded Zabbix RPMs
 PKG_DIR="/root/zabbix-pkgs"
 # Kickstart file location
-KS_FILE="/root/ks.cfg"
+KS_FILE="/root/zabbix-kickstart.cfg"
 # Directories for ISO build
 RESULT_DIR="/root/custom-iso"
 TMP_DIR="/tmp/lmc"
