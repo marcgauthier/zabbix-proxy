@@ -54,7 +54,7 @@ RESULT_DIR="/root/custom-iso"
 TMP_DIR=""  # Will be set by mktemp
 
 # Minimum required disk space in GB
-MIN_DISK_SPACE_GB=15
+MIN_DISK_SPACE_GB=10
 
 # Script version for logging
 SCRIPT_VERSION="2.0"
