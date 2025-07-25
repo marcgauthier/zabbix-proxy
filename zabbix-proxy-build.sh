@@ -26,7 +26,7 @@ IFS=$'\n\t'
 #------------------------------------------------------------------------------
 # URL of the AlmaLinux minimal ISO to download if missing.
 # Adjust the URL to point to the desired AlmaLinux 9 minimal ISO.
-ALMA_ISO_URL="https://repo.almalinux.org/almalinux/9/isos/x86_64/AlmaLinux-9-x86_64-minimal.iso"
+ALMA_ISO_URL="https://repo.almalinux.org/almalinux/9.6/isos/x86_64/AlmaLinux-9.6-x86_64-minimal.iso"
 #
 # Path to the AlmaLinux minimal ISO you have downloaded.
 ALMA_ISO_PATH="/root/downloads/AlmaLinux-9-x86_64-minimal.iso"
