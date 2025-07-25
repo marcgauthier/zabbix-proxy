@@ -1,70 +1,76 @@
-```bash
 #!/usr/bin/env bash
 #
-# build-almalinux-zabbix-iso.sh
+# build.sh
 #
 # This script automates the creation of a custom AlmaLinux ISO
 # preloaded with Zabbix Proxy and its dependencies.
 #
 # Prerequisites:
-#   - Run on an AlmaLinux minimal VM (or equivalent RHEL‑9/CentOS‑stream‑9).
+#   - Run on an AlmaLinux minimal VM (or equivalent RHEL‑9/Alma‑9).
 #   - Network access to the Internet to download packages and scripts.
 #   - Sufficient disk space under /root for downloads and result ISO.
 #
 # Usage:
-#   sudo bash build-almalinux-zabbix-iso.sh
 #
-
+#   curl -fsSL -o build.sh https://raw.githubusercontent.com/marcgauthier/zabbix-proxy/refs/heads/main/zabbix-kickstart.cfg
+#   curl -fsSL -o build.sh https://raw.githubusercontent.com/marcgauthier/zabbix-proxy/refs/heads/main/build.sh
+#   chmod +x build.sh
+#   ./build.sh
+#
 set -euo pipefail
 IFS=$'\n\t'
 
 #------------------------------------------------------------------------------
+# GLOBAL CONFIGURATION VARIABLES
+#------------------------------------------------------------------------------
+# Path to the AlmaLinux minimal ISO you have downloaded.
+ALMA_ISO_PATH="/root/downloads/AlmaLinux-9-x86_64-minimal.iso"
+#
+# URL of the Zabbix RPM repository package to install.
+# Adjust version (7.4) and AlmaLinux major (9) as needed.
+ZABBIX_REPO_RPM="https://repo.zabbix.com/zabbix/7.4/release/alma/9/noarch/zabbix-release-latest-7.4.el9.noarch.rpm"
+
+# Directory under which to stash downloaded Zabbix RPMs
+PKG_DIR="/root/zabbix-pkgs"
+# Kickstart file location
+KS_FILE="/root/ks.cfg"
+# Directories for ISO build
+RESULT_DIR="/root/custom-iso"
+TMP_DIR="/tmp/lmc"
+
+#------------------------------------------------------------------------------
+# VERIFY GLOBAL VARIABLES
+#------------------------------------------------------------------------------
+echo "ALMA_ISO_PATH is set to:   $ALMA_ISO_PATH"
+echo "ZABBIX_REPO_RPM is set to: $ZABBIX_REPO_RPM"
+echo
+
+
+#------------------------------------------------------------------------------
 # 1. Prepare the Base System
 #    - Enable EPEL repository for extra packages
-#    - Download and execute the custom build helper script
 #------------------------------------------------------------------------------
-
 echo "==> Step 1: Prepare base system"
-
-# Install Extra Packages for Enterprise Linux
 echo "Installing EPEL repository..."
 dnf install -y epel-release
 
-# Fetch the build helper script from GitHub and execute it
-echo "Downloading build.sh helper script..."
-curl -fsSL -o build.sh \
-  https://raw.githubusercontent.com/marcgauthier/zabbix-proxy/refs/heads/main/build.sh
-
-echo "Making build.sh executable and running it..."
-chmod +x build.sh
-./build.sh
-
 #------------------------------------------------------------------------------
 # 2. Download Zabbix and Dependencies (no installation)
-#    - Add the Zabbix official RPM repository
-#    - Clean DNF cache and refresh metadata
-#    - Download required RPMs into a local directory
+#    - Add the Zabbix RPM repository
+#    - Clean DNF cache and download required RPMs into PKG_DIR
 #------------------------------------------------------------------------------
-
 echo "==> Step 2: Download Zabbix RPMs (offline cache)"
+echo "Adding Zabbix repository package from $ZABBIX_REPO_RPM..."
+rpm -Uvh --quiet "$ZABBIX_REPO_RPM"
 
-# Configure Zabbix repository (adjust version/OS release as needed)
-echo "Adding Zabbix 7.4 repository for AlmaLinux 9..."
-rpm -Uvh --quiet \
-  https://repo.zabbix.com/zabbix/7.4/release/alma/9/noarch/zabbix-release-latest-7.4.el9.noarch.rpm
-
-echo "Cleaning DNF metadata and building cache..."
+echo "Cleaning DNF metadata and refreshing cache..."
 dnf clean all
 dnf makecache
-
-# Directory where RPMs will be downloaded
-PKG_DIR="/root/zabbix-pkgs"
 
 echo "Creating package download directory: $PKG_DIR"
 mkdir -p "$PKG_DIR"
 
-# Download Zabbix Proxy (MySQL) and Agent RPMs without installing
-echo "Downloading Zabbix Proxy and Agent RPMs to $PKG_DIR..."
+echo "Downloading Zabbix Proxy (MySQL) and Agent RPMs into $PKG_DIR..."
 dnf install --downloadonly \
     --downloaddir="$PKG_DIR" \
     zabbix-proxy-mysql \
@@ -72,68 +78,39 @@ dnf install --downloadonly \
 
 #------------------------------------------------------------------------------
 # 3. Install Tools for Custom ISO Creation
-#    - Install lorax, livecd-creator, pykickstart, Anaconda installer
-#    - Groupinstall development tools for building ISO
+#    - lorax, livecd-creator, pykickstart, Anaconda installer, Development Tools
 #------------------------------------------------------------------------------
-
 echo "==> Step 3: Install ISO build tools"
-
-# Install group of development tools (compilers, make, etc.)
-echo "Installing Development Tools group..."
+echo "Installing 'Development Tools' group for compilers, make, etc..."
 dnf groupinstall -y "Development Tools"
 
-# Install ISO creation utilities
 echo "Installing lorax, anaconda, and pykickstart..."
 dnf install -y lorax anaconda pykickstart
 
 #------------------------------------------------------------------------------
-# 4. Download Kickstart Configuration
-#    - Retrieve the ks.cfg (or zabbix.cfg) kickstart file from GitHub
-#------------------------------------------------------------------------------
-
-echo "==> Step 4: Download Kickstart file"
-
-KS_FILE="/root/ks.cfg"
-
-echo "Fetching custom kickstart file to $KS_FILE..."
-curl -fsSL -o "$KS_FILE" \
-  https://raw.githubusercontent.com/marcgauthier/zabbix-proxy/refs/heads/main/zabbix.cfg
-
-#------------------------------------------------------------------------------
-# 5. Build the Custom ISO with livemedia-creator
+# 4. Build the Custom ISO with livemedia-creator
 #    - Inject RPM cache and use kickstart to automate install
-#    - Adjust paths (ISO source, result directory) as needed
 #------------------------------------------------------------------------------
-
 echo "==> Step 5: Build custom AlmaLinux ISO"
-
-# Paths (customize if necessary)
-DOWNLOAD_DIR="/root/downloads"
-SOURCE_ISO="$DOWNLOAD_DIR/AlmaLinux-10-x86_64-minimal.iso"
-RESULT_DIR="/root/custom-iso"
-TMP_DIR="/tmp/lmc"
-
-# Ensure source ISO is present
-if [[ ! -f "$SOURCE_ISO" ]]; then
-  echo "ERROR: Source ISO not found at $SOURCE_ISO"
-  echo "Please download the AlmaLinux minimal ISO into $DOWNLOAD_DIR first."
+if [[ ! -f "$ALMA_ISO_PATH" ]]; then
+  echo "ERROR: AlmaLinux ISO not found at $ALMA_ISO_PATH"
+  echo "Please download the minimal ISO into that path and re-run."
   exit 1
 fi
 
-# Create result and temporary directories
+echo "Preparing result ($RESULT_DIR) and temp ($TMP_DIR) directories..."
 mkdir -p "$RESULT_DIR" "$TMP_DIR"
 
-# Build the ISO
+echo "Starting ISO build with livemedia-creator..."
 livemedia-creator \
   --make-iso \
-  --iso="$SOURCE_ISO" \
+  --iso="$ALMA_ISO_PATH" \
   --ks="$KS_FILE" \
   --initrd-inject="$PKG_DIR:/build/zabbix-pkgs" \
   --title="Alma-Zabbix-Proxy" \
-  --releasever=10 \
+  --releasever=9 \
   --tmp="$TMP_DIR" \
   --resultdir="$RESULT_DIR"
 
 echo "Custom ISO build complete!"
-echo "Find your ISO in: $RESULT_DIR"
-```
+echo "Your new ISO is located in: $RESULT_DIR"
