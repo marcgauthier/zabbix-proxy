@@ -46,9 +46,16 @@ dnf clean all && dnf makecache
 echo "Setting up Zabbix repository..."
 if ! rpm -qa | grep -q "zabbix-release"; then
     echo "Installing Zabbix repository..."
-    rpm -Uvh "$ZABBIX_REPO_RPM" 2>/dev/null || {
+    set +e  # Temporarily disable exit on error
+    rpm -Uvh "$ZABBIX_REPO_RPM" 2>/dev/null
+    rpm_exit_code=$?
+    set -e  # Re-enable exit on error
+    
+    if [ $rpm_exit_code -eq 0 ]; then
+        echo "Zabbix repository installed successfully"
+    else
         echo "Zabbix repository installation failed or already installed, continuing..."
-    }
+    fi
 else
     echo "Zabbix repository already installed, skipping..."
 fi
