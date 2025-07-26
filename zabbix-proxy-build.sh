@@ -5,7 +5,6 @@
 #
 # Usage: ./zabbix-proxy-build.sh
 #
-
 set -e
 
 # Configuration
@@ -92,9 +91,22 @@ cat >> "$MODIFIED_KS" << EOF
 repo --name="zabbix-local" --baseurl="file://$PKG_DIR"
 EOF
 
-# Clean up existing result directory
+# Clean up existing result directory more thoroughly
+echo "Cleaning up existing result directory..."
 if [[ -d "$RESULT_DIR" ]]; then
+    echo "Removing existing $RESULT_DIR"
     rm -rf "$RESULT_DIR"
+fi
+
+# Ensure the result directory doesn't exist and wait a moment
+sleep 1
+
+# Verify the directory is gone
+if [[ -d "$RESULT_DIR" ]]; then
+    echo "ERROR: Failed to remove $RESULT_DIR completely"
+    echo "Please manually remove it and try again:"
+    echo "  rm -rf '$RESULT_DIR'"
+    exit 1
 fi
 
 # Create custom ISO
@@ -115,6 +127,7 @@ OUTPUT_ISO=$(find "$RESULT_DIR" -name "*.iso" -type f | head -n1)
 
 if [[ -z "$OUTPUT_ISO" ]]; then
     echo "ERROR: No output ISO found in $RESULT_DIR"
+    echo "Check the build log: $RESULT_DIR/build.log"
     exit 1
 fi
 
