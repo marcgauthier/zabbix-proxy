@@ -37,17 +37,24 @@ fi
 
 # Install base packages and repositories
 echo "Installing base packages..."
-dnf install -y epel-release
+dnf install -y epel-release || {
+    echo "EPEL installation failed or already installed, continuing..."
+}
 dnf clean all && dnf makecache
 
 # Setup Zabbix repository
 echo "Setting up Zabbix repository..."
-if ! rpm -q zabbix-release &>/dev/null; then
-    rpm -Uvh --quiet "$ZABBIX_REPO_RPM"
-    dnf clean all && dnf makecache
+if ! rpm -qa | grep -q "zabbix-release"; then
+    echo "Installing Zabbix repository..."
+    rpm -Uvh "$ZABBIX_REPO_RPM" 2>/dev/null || {
+        echo "Zabbix repository installation failed or already installed, continuing..."
+    }
 else
     echo "Zabbix repository already installed, skipping..."
 fi
+dnf clean all && dnf makecache || {
+    echo "Cache refresh failed, continuing..."
+}
 
 # Download Zabbix packages
 echo "Downloading Zabbix packages and dependencies..."
@@ -82,7 +89,9 @@ echo "Installing build tools..."
 # Check if Development Tools group is already installed
 if ! dnf group list installed | grep -q "Development Tools"; then
     echo "Installing Development Tools group..."
-    dnf groupinstall -y "Development Tools"
+    dnf groupinstall -y "Development Tools" || {
+        echo "Development Tools installation failed or already installed, continuing..."
+    }
 else
     echo "Development Tools already installed, skipping..."
 fi
@@ -90,7 +99,7 @@ fi
 # Install individual packages, allowing them to be skipped if already installed
 echo "Installing required build packages..."
 dnf install -y lorax anaconda-tui python3-kickstart createrepo_c || {
-    echo "Some build tools may already be installed"
+    echo "Some build tools installation failed or already installed, continuing..."
 }
 
 # Create local repository
