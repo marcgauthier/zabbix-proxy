@@ -47,10 +47,18 @@ rpm -Uvh --quiet "$ZABBIX_REPO_RPM"
 dnf clean all && dnf makecache
 
 # Download Zabbix packages
-echo "Downloading Zabbix packages..."
+echo "Downloading Zabbix packages and dependencies..."
 mkdir -p "$PKG_DIR"
+
+# Download Zabbix packages and all their dependencies
 dnf download --resolve --alldeps --downloaddir="$PKG_DIR" \
     zabbix-proxy-mysql zabbix-agent2
+
+# Download additional required packages for the kickstart
+dnf download --resolve --alldeps --downloaddir="$PKG_DIR" \
+    mariadb-server acl bind-utils wget curl tar gzip
+
+echo "Downloaded $(find "$PKG_DIR" -name "*.rpm" | wc -l) packages"
 
 # Install build tools
 echo "Installing build tools..."
