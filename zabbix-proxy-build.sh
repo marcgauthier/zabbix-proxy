@@ -13,7 +13,6 @@
 #
 # Usage:
 #
-#   curl -fsSL -o zabbix-kickstart.cfg https://raw.githubusercontent.com/marcgauthier/zabbix-proxy/refs/heads/main/zabbix-kickstart.cfg
 #   curl -fsSL -o zabbix-proxy-build.sh https://raw.githubusercontent.com/marcgauthier/zabbix-proxy/refs/heads/main/zabbix-proxy-build.sh
 #   chmod +x zabbix-proxy-build.sh
 #   ./zabbix-proxy-build.sh
@@ -28,6 +27,9 @@
 #
 set -euo pipefail
 IFS=$'\n\t'
+
+# download kickstart file
+curl -fsSL -o zabbix-kickstart.cfg https://raw.githubusercontent.com/marcgauthier/zabbix-proxy/refs/heads/main/zabbix-kickstart.cfg
 
 #------------------------------------------------------------------------------
 # GLOBAL CONFIGURATION VARIABLES
