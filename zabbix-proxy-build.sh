@@ -7,7 +7,7 @@
 #
 set -euo pipefail
 
-#─────────────────────────────────────────────────────────────────────────────
+#─────────────────────────────────────────────────────────────────────────────https://github.com/marcgauthier/zabbix-proxy/tree/main
 # Configuration
 #─────────────────────────────────────────────────────────────────────────────
 ALMA_VERSION="9.6"
@@ -53,7 +53,8 @@ if [[ ! -f "$KS_FILE" ]]; then
     echo "    → Kickstart file not found locally, attempting to download..."
     
     # You can modify this URL to point to your kickstart file location
-    KICKSTART_URL="https://raw.githubusercontent.com/marcgauthier/zabbix-proxy/main/almalinux-appliance-kickstart.cfg"
+    KICKSTART_URL="https://raw.githubusercontent.com/marcgauthier/zabbix-proxy/refs/heads/main/zabbix-kickstart.cfg"
+    
     
     if curl -fsSL -o "$KS_FILE" "$KICKSTART_URL" 2>/dev/null; then
         echo "    → Successfully downloaded kickstart file"
