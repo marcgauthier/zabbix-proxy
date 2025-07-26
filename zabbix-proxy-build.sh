@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
 #
-# Simple Zabbix Proxy ISO Builder (no temp KS)
-# Creates a custom AlmaLinux ISO with Zabbix Proxy preinstalled
+# AlmaLinux Appliance ISO Builder
+# Creates a custom AlmaLinux ISO with minimal base configuration
 #
-# Usage: ./zabbix-proxy-build.sh
+# Usage: ./almalinux-appliance-build.sh
 #
 set -euo pipefail
 
@@ -14,116 +14,269 @@ ALMA_VERSION="9.6"
 ALMA_ISO_URL="https://repo.almalinux.org/almalinux/${ALMA_VERSION}/isos/x86_64/AlmaLinux-${ALMA_VERSION}-x86_64-minimal.iso"
 ALMA_ISO_PATH="/root/downloads/AlmaLinux-${ALMA_VERSION}-x86_64-minimal.iso"
 
-ZABBIX_REPO_RPM="https://repo.zabbix.com/zabbix/7.4/release/alma/9/noarch/zabbix-release-latest-7.4.el9.noarch.rpm"
-
-PKG_DIR="/root/zabbix-pkgs"
-KS_FILE="/root/zabbix-kickstart.cfg"
+# Updated paths and naming
+KS_FILE="/root/almalinux-appliance-kickstart.cfg"
 RESULT_DIR="/root/custom-iso"
 LOGS_DIR="/root/logs"
+WORK_DIR="/tmp/appliance-build-$$"
 
-echo "=== Starting Zabbix Proxy ISO Builder ==="
+echo "=== Starting AlmaLinux Appliance ISO Builder ==="
 
 #─────────────────────────────────────────────────────────────────────────────
 # Prerequisites & Environment Checks
 #─────────────────────────────────────────────────────────────────────────────
-[[ $EUID -eq 0 ]] || { echo "ERROR: Must run as root"; exit 1; }
-mkdir -p "$LOGS_DIR" "$PKG_DIR" "$(dirname "$ALMA_ISO_PATH")"
+echo "[1/6] Checking prerequisites..."
 
-#─────────────────────────────────────────────────────────────────────────────
-# 1) Download/Kickstart Verification
-#─────────────────────────────────────────────────────────────────────────────
-echo "[1/9] Fetching kickstart file..."
-curl -fsSL -o "$KS_FILE" \
-  https://raw.githubusercontent.com/marcgauthier/zabbix-proxy/refs/heads/main/zabbix-kickstart.cfg
+# Verify running as root
+if [[ $EUID -ne 0 ]]; then
+    echo "ERROR: Must run as root" >&2
+    exit 1
+fi
 
-echo "    → Verifying that KS file has no external URLs..."
-if grep -E '^(url|repo).*(http|https)' "$KS_FILE"; then
-  echo "ERROR: Kickstart still references an external URL. Please remove any 'url --url=…' or 'repo …http…' lines." >&2
-  exit 1
+# Create necessary directories
+mkdir -p "$LOGS_DIR" "$(dirname "$ALMA_ISO_PATH")" "$RESULT_DIR" "$WORK_DIR"
+echo "    → Created working directories"
+
+# Check available disk space (need at least 8GB free)
+AVAILABLE_SPACE=$(df /tmp | awk 'NR==2 {print $4}')
+if [[ $AVAILABLE_SPACE -lt 8388608 ]]; then  # 8GB in KB
+    echo "WARNING: Less than 8GB free space in /tmp. Build may fail." >&2
 fi
 
 #─────────────────────────────────────────────────────────────────────────────
-# 2) Download AlmaLinux ISO
+# 2) Kickstart File Setup
 #─────────────────────────────────────────────────────────────────────────────
-echo "[2/9] Ensuring AlmaLinux ISO is present..."
-if [[ ! -f "$ALMA_ISO_PATH" ]]; then
-  curl -fsSL -o "$ALMA_ISO_PATH" "$ALMA_ISO_URL"
-else
-  echo "    → ISO already exists, skipping download."
-fi
+echo "[2/6] Setting up kickstart configuration..."
 
-#─────────────────────────────────────────────────────────────────────────────
-# 3) Install EPEL & DNF Plugins
-#─────────────────────────────────────────────────────────────────────────────
-echo "[3/9] Installing EPEL & dnf-plugins-core..."
-dnf install -y epel-release dnf-plugins-core || echo "    → already installed"
-dnf clean all && dnf makecache
+# Download kickstart file if it doesn't exist locally
+if [[ ! -f "$KS_FILE" ]]; then
+    echo "    → Kickstart file not found locally, attempting to download..."
+    
+    # You can modify this URL to point to your kickstart file location
+    KICKSTART_URL="https://raw.githubusercontent.com/your-repo/your-kickstart/main/almalinux-appliance-kickstart.cfg"
+    
+    if curl -fsSL -o "$KS_FILE" "$KICKSTART_URL" 2>/dev/null; then
+        echo "    → Successfully downloaded kickstart file"
+    else
+        echo "    → Download failed. Creating template kickstart file..."
+        echo "    → Please edit $KS_FILE with your configuration"
+        
+        # Create a basic template if download fails
+        cat > "$KS_FILE" << 'EOF'
+# AlmaLinux Appliance Kickstart Template
+# Edit this file with your specific configuration
 
-#─────────────────────────────────────────────────────────────────────────────
-# 4) Configure Zabbix Repo
-#─────────────────────────────────────────────────────────────────────────────
-echo "[4/9] Installing Zabbix repo RPM..."
-rpm -qa | grep -q '^zabbix-release' || rpm -Uvh "$ZABBIX_REPO_RPM" 2>/dev/null || echo "    → already installed"
-dnf clean all && dnf makecache
+lang en_US.UTF-8
+keyboard us
+timezone UTC --utc
+network --bootproto=dhcp --device=link --activate
+zerombr
+clearpart --all --initlabel
+part / --size=4096 --fstype=ext4
+part /data --size=2048 --fstype=ext4 --grow
+rootpw --lock
+user --name=admin --groups=wheel --password=changeme --plaintext
+services --enabled=NetworkManager,chronyd,firewalld
+services --disabled=sshd
 
-#─────────────────────────────────────────────────────────────────────────────
-# 5) Download Zabbix & Dependencies
-#─────────────────────────────────────────────────────────────────────────────
-echo "[5/9] Downloading Zabbix packages + deps..."
-dnf install -y --downloadonly --downloaddir="$PKG_DIR" \
-    zabbix-proxy-mysql zabbix-agent2 || echo "    → some already present"
+%packages
+@core
+@standard
+kernel
+systemd
+NetworkManager
+firewalld
+chrony
+%end
 
-echo "[6/9] Downloading additional packages..."
-dnf install -y --downloadonly --downloaddir="$PKG_DIR" \
-    mariadb-server acl bind-utils wget curl tar gzip || echo "    → some already present"
-
-echo "    → RPM count in $PKG_DIR: $(find "$PKG_DIR" -type f -name '*.rpm' | wc -l)"
-
-#─────────────────────────────────────────────────────────────────────────────
-# 7) Install Build Tools
-#─────────────────────────────────────────────────────────────────────────────
-echo "[7/9] Installing lorax, anaconda, kickstart..."
-dnf install -y lorax anaconda python3-kickstart createrepo_c || echo "    → some already present"
-
-#─────────────────────────────────────────────────────────────────────────────
-# 8) Create Local Repo
-#─────────────────────────────────────────────────────────────────────────────
-echo "[8/9] Creating local YUM repo..."
-createrepo_c "$PKG_DIR" || echo "    → createrepo_c failed, continuing"
-cat > "$PKG_DIR/zabbix-local.repo" << EOF
-[zabbix-local]
-name=Local Zabbix Repository
-baseurl=file://$PKG_DIR
-enabled=1
-gpgcheck=0
+%post --log=/root/ks-post.log
+echo "Post-installation setup completed" >> /root/ks-post.log
+%end
 EOF
-
-#─────────────────────────────────────────────────────────────────────────────
-# 9) Build the ISO
-#─────────────────────────────────────────────────────────────────────────────
-echo "[9/9] Running livemedia-creator (this may take up to an hour)..."
-livemedia-creator \
-  --make-iso \
-  --iso="$ALMA_ISO_PATH" \
-  --ks="$KS_FILE" \
-  --project=AlmaLinux-Zabbix \
-  --releasever=9 \
-  --tmp=/tmp/lmc-$$ \
-  --resultdir="$RESULT_DIR" \
-  --logfile="$LOGS_DIR/build.log" \
-  --no-virt
-
-#─────────────────────────────────────────────────────────────────────────────
-# Final Reporting
-#─────────────────────────────────────────────────────────────────────────────
-OUTPUT_ISO=$(find "$RESULT_DIR" -type f -name '*.iso' | head -n1)
-if [[ -z "$OUTPUT_ISO" ]]; then
-  echo "ERROR: No ISO found. Check $LOGS_DIR/build.log" >&2
-  exit 1
+        echo "ERROR: Please edit the template kickstart file at $KS_FILE before continuing" >&2
+        exit 1
+    fi
+else
+    echo "    → Using existing kickstart file: $KS_FILE"
 fi
 
-echo -e "\n=== BUILD SUCCESS ==="
-echo "ISO:  $OUTPUT_ISO"
-echo "Size: $(du -m "$OUTPUT_ISO" | cut -f1) MB"
-echo "Log:  $LOGS_DIR/build.log"
-echo "Next: Test in VM, then deploy!"
+# Verify kickstart file doesn't have external repo URLs (they cause issues with livemedia-creator)
+if grep -E '^(url|repo).*(http|https)' "$KS_FILE" >/dev/null 2>&1; then
+    echo "WARNING: Kickstart contains external URLs. This may cause build issues." >&2
+    echo "         Consider using only packages from the base ISO." >&2
+fi
+
+# Basic kickstart syntax validation
+if ! ksflatten "$KS_FILE" >/dev/null 2>&1; then
+    echo "ERROR: Kickstart file has syntax errors" >&2
+    echo "       Run: ksflatten $KS_FILE" >&2
+    exit 1
+fi
+echo "    → Kickstart file validated successfully"
+
+#─────────────────────────────────────────────────────────────────────────────
+# 3) Download AlmaLinux ISO
+#─────────────────────────────────────────────────────────────────────────────
+echo "[3/6] Ensuring AlmaLinux ISO is available..."
+
+if [[ ! -f "$ALMA_ISO_PATH" ]]; then
+    echo "    → Downloading AlmaLinux $ALMA_VERSION ISO..."
+    if ! curl -fsSL --progress-bar -o "$ALMA_ISO_PATH" "$ALMA_ISO_URL"; then
+        echo "ERROR: Failed to download AlmaLinux ISO" >&2
+        exit 1
+    fi
+    echo "    → Download completed"
+else
+    echo "    → ISO already exists: $ALMA_ISO_PATH"
+fi
+
+# Verify ISO integrity (basic check)
+if ! file "$ALMA_ISO_PATH" | grep -q "ISO 9660"; then
+    echo "ERROR: Downloaded file is not a valid ISO" >&2
+    exit 1
+fi
+
+ISO_SIZE=$(du -m "$ALMA_ISO_PATH" | cut -f1)
+echo "    → ISO size: ${ISO_SIZE}MB"
+
+#─────────────────────────────────────────────────────────────────────────────
+# 4) Install Required Build Tools
+#─────────────────────────────────────────────────────────────────────────────
+echo "[4/6] Installing build dependencies..."
+
+# Update system first
+echo "    → Updating system packages..."
+dnf update -y >/dev/null 2>&1 || echo "    → Update completed with warnings"
+
+# Install required packages for ISO building
+BUILD_PACKAGES=(
+    "lorax"                    # Main ISO building tool
+    "anaconda"                 # Installer framework
+    "python3-kickstart"        # Kickstart file processing
+    "createrepo_c"            # Repository creation (if needed)
+    "squashfs-tools"          # For ISO compression
+    "genisoimage"             # ISO creation utilities
+)
+
+echo "    → Installing build tools..."
+for pkg in "${BUILD_PACKAGES[@]}"; do
+    if ! rpm -q "$pkg" >/dev/null 2>&1; then
+        echo "    → Installing $pkg..."
+        dnf install -y "$pkg" >/dev/null 2>&1 || echo "      → Warning: Failed to install $pkg"
+    fi
+done
+
+echo "    → Build tools installation completed"
+
+#─────────────────────────────────────────────────────────────────────────────
+# 5) Prepare Build Environment
+#─────────────────────────────────────────────────────────────────────────────
+echo "[5/6] Preparing build environment..."
+
+# Clean any previous build artifacts
+if [[ -d "$RESULT_DIR" ]]; then
+    echo "    → Cleaning previous build results..."
+    rm -rf "${RESULT_DIR:?}"/*
+fi
+
+# Set up temporary directories with proper permissions
+chmod 755 "$WORK_DIR"
+echo "    → Work directory: $WORK_DIR"
+
+# Configure SELinux context if enabled
+if getenforce 2>/dev/null | grep -q "Enforcing"; then
+    echo "    → SELinux is enforcing, setting contexts..."
+    semanage fcontext -a -t admin_home_t "$WORK_DIR" 2>/dev/null || true
+    restorecon -R "$WORK_DIR" 2>/dev/null || true
+fi
+
+#─────────────────────────────────────────────────────────────────────────────
+# 6) Build the Custom ISO
+#─────────────────────────────────────────────────────────────────────────────
+echo "[6/6] Building custom ISO (this may take 30-60 minutes)..."
+echo "    → Build started at: $(date)"
+echo "    → Log file: $LOGS_DIR/build.log"
+echo "    → Please be patient, this process takes time..."
+
+# Create the ISO using livemedia-creator
+LIVEMEDIA_CMD=(
+    "livemedia-creator"
+    "--make-iso"                         # Create bootable ISO
+    "--iso=$ALMA_ISO_PATH"               # Source ISO
+    "--ks=$KS_FILE"                      # Kickstart configuration
+    "--project=AlmaLinux-Appliance"      # Project name
+    "--releasever=9"                     # AlmaLinux major version
+    "--tmp=$WORK_DIR"                    # Temporary build directory
+    "--resultdir=$RESULT_DIR"            # Output directory
+    "--logfile=$LOGS_DIR/build.log"      # Build log
+    "--no-virt"                          # Don't use virtualization
+    "--image-only"                       # Skip package installation verification
+)
+
+# Execute the build command
+if "${LIVEMEDIA_CMD[@]}" 2>&1 | tee -a "$LOGS_DIR/build-output.log"; then
+    BUILD_SUCCESS=true
+else
+    BUILD_SUCCESS=false
+fi
+
+echo "    → Build completed at: $(date)"
+
+#─────────────────────────────────────────────────────────────────────────────
+# Results and Cleanup
+#─────────────────────────────────────────────────────────────────────────────
+echo
+echo "=== Build Results ==="
+
+# Check for successful build
+OUTPUT_ISO=$(find "$RESULT_DIR" -type f -name '*.iso' 2>/dev/null | head -n1)
+
+if [[ -n "$OUTPUT_ISO" && -f "$OUTPUT_ISO" && "$BUILD_SUCCESS" == "true" ]]; then
+    # Success
+    ISO_SIZE=$(du -m "$OUTPUT_ISO" | cut -f1)
+    ISO_NAME=$(basename "$OUTPUT_ISO")
+    
+    echo "✓ BUILD SUCCESSFUL"
+    echo "  ISO File: $OUTPUT_ISO"
+    echo "  ISO Name: $ISO_NAME"
+    echo "  ISO Size: ${ISO_SIZE}MB"
+    echo "  Build Log: $LOGS_DIR/build.log"
+    echo
+    echo "=== Next Steps ==="
+    echo "1. Test the ISO in a virtual machine"
+    echo "2. Verify the first-boot script works correctly"
+    echo "3. Deploy to target hardware"
+    echo
+    echo "=== VM Testing Command Example ==="
+    echo "qemu-system-x86_64 -m 2048 -cdrom '$OUTPUT_ISO' -boot d"
+    
+else
+    # Failure
+    echo "✗ BUILD FAILED"
+    echo "  Check build log: $LOGS_DIR/build.log"
+    echo "  Check output log: $LOGS_DIR/build-output.log"
+    echo
+    echo "=== Troubleshooting ==="
+    echo "1. Verify kickstart syntax: ksflatten $KS_FILE"
+    echo "2. Check available disk space: df -h /tmp"
+    echo "3. Review build logs for specific errors"
+    
+    # Show last few lines of build log for quick diagnosis
+    if [[ -f "$LOGS_DIR/build.log" ]]; then
+        echo
+        echo "=== Last 10 lines of build log ==="
+        tail -10 "$LOGS_DIR/build.log"
+    fi
+    
+    exit 1
+fi
+
+# Cleanup temporary files
+echo
+echo "=== Cleanup ==="
+if [[ -d "$WORK_DIR" ]]; then
+    echo "Removing temporary build directory..."
+    rm -rf "$WORK_DIR"
+fi
+
+echo "Build process completed successfully!"
