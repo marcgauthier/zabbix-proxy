@@ -27,7 +27,7 @@ echo "=== Starting Zabbix Proxy ISO Builder ==="
 # Prerequisites & Environment Checks
 #─────────────────────────────────────────────────────────────────────────────
 [[ $EUID -eq 0 ]] || { echo "ERROR: Must run as root"; exit 1; }
-mkdir -p "$LOGS_DIR" "$PKG_DIR" "$(dirname "$ALMA_ISO_PATH")" "$RESULT_DIR"
+mkdir -p "$LOGS_DIR" "$PKG_DIR" "$(dirname "$ALMA_ISO_PATH")"
 
 #─────────────────────────────────────────────────────────────────────────────
 # 1) Download/Kickstart Verification
