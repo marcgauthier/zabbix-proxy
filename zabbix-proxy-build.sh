@@ -504,7 +504,6 @@ create_custom_iso() {
     log_info "Using temporary directory: $TMP_DIR"
     
     # Prepare result directory
-    mkdir -p "$RESULT_DIR"
     log_info "Results will be saved to: $RESULT_DIR"
     
     # Verify all prerequisites before starting build
