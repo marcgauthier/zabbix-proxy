@@ -555,7 +555,6 @@ EOF
         "--make-iso"
         "--iso=$ALMA_ISO_PATH"
         "--ks=$modified_ks"
-        "--title=Alma-Zabbix-Proxy"
         "--project=AlmaLinux-Zabbix"
         "--releasever=9"
         "--tmp=$TMP_DIR"
