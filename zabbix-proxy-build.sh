@@ -1,16 +1,21 @@
 #!/usr/bin/env bash
 #
-# Simple Zabbix Proxy ISO Builder
+# Simple Zabbix Proxy ISO Builder (no temp KS)
 # Creates a custom AlmaLinux ISO with Zabbix Proxy preinstalled
 #
 # Usage: ./zabbix-proxy-build.sh
 #
-set -e
+set -euo pipefail
 
+#─────────────────────────────────────────────────────────────────────────────
 # Configuration
-ALMA_ISO_URL="https://repo.almalinux.org/almalinux/9.6/isos/x86_64/AlmaLinux-9.6-x86_64-minimal.iso"
-ALMA_ISO_PATH="/root/downloads/AlmaLinux-9-x86_64-minimal.iso"
+#─────────────────────────────────────────────────────────────────────────────
+ALMA_VERSION="9.6"
+ALMA_ISO_URL="https://repo.almalinux.org/almalinux/${ALMA_VERSION}/isos/x86_64/AlmaLinux-${ALMA_VERSION}-x86_64-minimal.iso"
+ALMA_ISO_PATH="/root/downloads/AlmaLinux-${ALMA_VERSION}-x86_64-minimal.iso"
+
 ZABBIX_REPO_RPM="https://repo.zabbix.com/zabbix/7.4/release/alma/9/noarch/zabbix-release-latest-7.4.el9.noarch.rpm"
+
 PKG_DIR="/root/zabbix-pkgs"
 KS_FILE="/root/zabbix-kickstart.cfg"
 RESULT_DIR="/root/custom-iso"
@@ -18,108 +23,73 @@ LOGS_DIR="/root/logs"
 
 echo "=== Starting Zabbix Proxy ISO Builder ==="
 
-# Create logs directory
-mkdir -p "$LOGS_DIR"
+#─────────────────────────────────────────────────────────────────────────────
+# Prerequisites & Environment Checks
+#─────────────────────────────────────────────────────────────────────────────
+[[ $EUID -eq 0 ]] || { echo "ERROR: Must run as root"; exit 1; }
+mkdir -p "$LOGS_DIR" "$PKG_DIR" "$(dirname "$ALMA_ISO_PATH")" "$RESULT_DIR"
 
-# Check if running as root
-if [[ $EUID -ne 0 ]]; then
-    echo "ERROR: This script must be run as root"
-    exit 1
-fi
-
-# Download kickstart file
-echo "Downloading kickstart configuration..."
+#─────────────────────────────────────────────────────────────────────────────
+# 1) Download/Kickstart Verification
+#─────────────────────────────────────────────────────────────────────────────
+echo "[1/9] Fetching kickstart file..."
 curl -fsSL -o "$KS_FILE" \
-    https://raw.githubusercontent.com/marcgauthier/zabbix-proxy/refs/heads/main/zabbix-kickstart.cfg
+  https://raw.githubusercontent.com/marcgauthier/zabbix-proxy/refs/heads/main/zabbix-kickstart.cfg
 
-# Download AlmaLinux ISO if not exists
-if [[ ! -f "$ALMA_ISO_PATH" ]]; then
-    echo "Downloading AlmaLinux ISO..."
-    mkdir -p "$(dirname "$ALMA_ISO_PATH")"
-    curl -fsSL -o "$ALMA_ISO_PATH" "$ALMA_ISO_URL"
+echo "    → Verifying that KS file has no external URLs..."
+if grep -E '^(url|repo).*(http|https)' "$KS_FILE"; then
+  echo "ERROR: Kickstart still references an external URL. Please remove any 'url --url=…' or 'repo …http…' lines." >&2
+  exit 1
 fi
 
-# Install base packages and repositories
-echo "Installing base packages..."
-dnf install -y epel-release || {
-    echo "EPEL installation failed or already installed, continuing..."
-}
+#─────────────────────────────────────────────────────────────────────────────
+# 2) Download AlmaLinux ISO
+#─────────────────────────────────────────────────────────────────────────────
+echo "[2/9] Ensuring AlmaLinux ISO is present..."
+if [[ ! -f "$ALMA_ISO_PATH" ]]; then
+  curl -fsSL -o "$ALMA_ISO_PATH" "$ALMA_ISO_URL"
+else
+  echo "    → ISO already exists, skipping download."
+fi
+
+#─────────────────────────────────────────────────────────────────────────────
+# 3) Install EPEL & DNF Plugins
+#─────────────────────────────────────────────────────────────────────────────
+echo "[3/9] Installing EPEL & dnf-plugins-core..."
+dnf install -y epel-release dnf-plugins-core || echo "    → already installed"
 dnf clean all && dnf makecache
 
-# Setup Zabbix repository
-echo "Setting up Zabbix repository..."
-if ! rpm -qa | grep -q "zabbix-release"; then
-    echo "Installing Zabbix repository..."
-    set +e  # Temporarily disable exit on error
-    rpm -Uvh "$ZABBIX_REPO_RPM" 2>/dev/null
-    rpm_exit_code=$?
-    set -e  # Re-enable exit on error
-    
-    if [ $rpm_exit_code -eq 0 ]; then
-        echo "Zabbix repository installed successfully"
-    else
-        echo "Zabbix repository installation failed or already installed, continuing..."
-    fi
-else
-    echo "Zabbix repository already installed, skipping..."
-fi
-dnf clean all && dnf makecache || {
-    echo "Cache refresh failed, continuing..."
-}
+#─────────────────────────────────────────────────────────────────────────────
+# 4) Configure Zabbix Repo
+#─────────────────────────────────────────────────────────────────────────────
+echo "[4/9] Installing Zabbix repo RPM..."
+rpm -qa | grep -q '^zabbix-release' || rpm -Uvh "$ZABBIX_REPO_RPM" 2>/dev/null || echo "    → already installed"
+dnf clean all && dnf makecache
 
-# Download Zabbix packages
-echo "Downloading Zabbix packages and dependencies..."
-mkdir -p "$PKG_DIR"
+#─────────────────────────────────────────────────────────────────────────────
+# 5) Download Zabbix & Dependencies
+#─────────────────────────────────────────────────────────────────────────────
+echo "[5/9] Downloading Zabbix packages + deps..."
+dnf install -y --downloadonly --downloaddir="$PKG_DIR" \
+    zabbix-proxy-mysql zabbix-agent2 || echo "    → some already present"
 
-# Check if we already have packages downloaded
-if [[ $(find "$PKG_DIR" -name "*.rpm" | wc -l) -gt 0 ]]; then
-    echo "Found existing packages in $PKG_DIR, checking if we need to download more..."
-    # Still run the download commands but allow them to skip existing files
-else
-    echo "No existing packages found, downloading all packages..."
-fi
+echo "[6/9] Downloading additional packages..."
+dnf install -y --downloadonly --downloaddir="$PKG_DIR" \
+    mariadb-server acl bind-utils wget curl tar gzip || echo "    → some already present"
 
-# Download Zabbix packages and all their dependencies
-echo "Downloading Zabbix proxy and agent packages..."
-dnf download --resolve --alldeps --downloaddir="$PKG_DIR" \
-    zabbix-proxy-mysql zabbix-agent2 || {
-    echo "Warning: Some Zabbix packages may already exist or failed to download"
-}
+echo "    → RPM count in $PKG_DIR: $(find "$PKG_DIR" -type f -name '*.rpm' | wc -l)"
 
-# Download additional required packages for the kickstart
-echo "Downloading additional required packages..."
-dnf download --resolve --alldeps --downloaddir="$PKG_DIR" \
-    mariadb-server acl bind-utils wget curl tar gzip || {
-    echo "Warning: Some additional packages may already exist or failed to download"
-}
+#─────────────────────────────────────────────────────────────────────────────
+# 7) Install Build Tools
+#─────────────────────────────────────────────────────────────────────────────
+echo "[7/9] Installing lorax, anaconda, kickstart..."
+dnf install -y lorax anaconda python3-kickstart createrepo_c || echo "    → some already present"
 
-echo "Total packages in repository: $(find "$PKG_DIR" -name "*.rpm" | wc -l)"
-
-# Install build tools
-echo "Installing build tools..."
-# Check if Development Tools group is already installed
-if ! dnf group list installed | grep -q "Development Tools"; then
-    echo "Installing Development Tools group..."
-    dnf groupinstall -y "Development Tools" || {
-        echo "Development Tools installation failed or already installed, continuing..."
-    }
-else
-    echo "Development Tools already installed, skipping..."
-fi
-
-# Install individual packages, allowing them to be skipped if already installed
-echo "Installing required build packages..."
-dnf install -y lorax anaconda-tui python3-kickstart createrepo_c || {
-    echo "Some build tools installation failed or already installed, continuing..."
-}
-
-# Create local repository
-echo "Creating/updating local repository..."
-createrepo_c "$PKG_DIR" || {
-    echo "Repository creation failed, but continuing..."
-}
-
-# Create repository configuration file
+#─────────────────────────────────────────────────────────────────────────────
+# 8) Create Local Repo
+#─────────────────────────────────────────────────────────────────────────────
+echo "[8/9] Creating local YUM repo..."
+createrepo_c "$PKG_DIR" || echo "    → createrepo_c failed, continuing"
 cat > "$PKG_DIR/zabbix-local.repo" << EOF
 [zabbix-local]
 name=Local Zabbix Repository
@@ -128,54 +98,32 @@ enabled=1
 gpgcheck=0
 EOF
 
-# Prepare temporary directory
-TMP_DIR=$(mktemp -d)
-echo "Using temporary directory: $TMP_DIR"
-
-# Create modified kickstart file with local repository
-MODIFIED_KS="$TMP_DIR/modified-kickstart.cfg"
-cp "$KS_FILE" "$MODIFIED_KS"
-
-cat >> "$MODIFIED_KS" << EOF
-
-# Local Zabbix repository
-repo --name="zabbix-local" --baseurl="file://$PKG_DIR"
-EOF
-
-# Create custom ISO
-echo "Creating custom ISO (this may take 30-60 minutes)..."
+#─────────────────────────────────────────────────────────────────────────────
+# 9) Build the ISO
+#─────────────────────────────────────────────────────────────────────────────
+echo "[9/9] Running livemedia-creator (this may take up to an hour)..."
 livemedia-creator \
-    --make-iso \
-    --iso="$ALMA_ISO_PATH" \
-    --ks="$MODIFIED_KS" \
-    --project=AlmaLinux-Zabbix \
-    --releasever=9 \
-    --tmp="$TMP_DIR" \
-    --resultdir="$RESULT_DIR" \
-    --logfile="$LOGS_DIR/build.log" \
-    --no-virt
+  --make-iso \
+  --iso="$ALMA_ISO_PATH" \
+  --ks="$KS_FILE" \
+  --project=AlmaLinux-Zabbix \
+  --releasever=9 \
+  --tmp=/tmp/lmc-$$ \
+  --resultdir="$RESULT_DIR" \
+  --logfile="$LOGS_DIR/build.log" \
+  --no-virt
 
-# Find the created ISO
-OUTPUT_ISO=$(find "$RESULT_DIR" -name "*.iso" -type f | head -n1)
-
+#─────────────────────────────────────────────────────────────────────────────
+# Final Reporting
+#─────────────────────────────────────────────────────────────────────────────
+OUTPUT_ISO=$(find "$RESULT_DIR" -type f -name '*.iso' | head -n1)
 if [[ -z "$OUTPUT_ISO" ]]; then
-    echo "ERROR: No output ISO found in $RESULT_DIR"
-    echo "Check the build log: $LOGS_DIR/build.log"
-    exit 1
+  echo "ERROR: No ISO found. Check $LOGS_DIR/build.log" >&2
+  exit 1
 fi
 
-# Get ISO size
-ISO_SIZE_MB=$(du -m "$OUTPUT_ISO" | cut -f1)
-
-# Cleanup
-rm -rf "$TMP_DIR"
-
-echo "=== BUILD COMPLETED SUCCESSFULLY ==="
-echo "Custom ISO created: $OUTPUT_ISO"
-echo "Size: ${ISO_SIZE_MB}MB"
-echo "Build log: $LOGS_DIR/build.log"
-echo ""
-echo "Next steps:"
-echo "1. Test the ISO in a virtual machine"
-echo "2. Deploy to target systems"
-echo "3. Configure Zabbix Proxy settings as needed"
+echo -e "\n=== BUILD SUCCESS ==="
+echo "ISO:  $OUTPUT_ISO"
+echo "Size: $(du -m "$OUTPUT_ISO" | cut -f1) MB"
+echo "Log:  $LOGS_DIR/build.log"
+echo "Next: Test in VM, then deploy!"
