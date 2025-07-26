@@ -551,7 +551,13 @@ EOF
     log_info "ISO Source: $ALMA_ISO_PATH"
     log_info "Kickstart: $modified_ks"
     log_info "Local repository: $PKG_DIR"
-    
+
+    log_info "Checking if folder exists: $RESULT_DIR"
+    if [[ -d "$RESULT_DIR" ]]; then
+      log_info "Removing existing folder: $RESULT_DIR"
+      rm -rf "$RESULT_DIR"
+    fi
+
     # Run livemedia-creator with the corrected approach
     local lmc_cmd=(
         "livemedia-creator"
