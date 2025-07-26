@@ -28,11 +28,7 @@
 set -euo pipefail
 IFS=$'\n\t'
 
-# download kickstart file
-curl -fsSL \
-  -o "$KS_FILE" \
-  https://raw.githubusercontent.com/marcgauthier/zabbix-proxy/refs/heads/main/zabbix-kickstart.cfg
-  
+
 #------------------------------------------------------------------------------
 # GLOBAL CONFIGURATION VARIABLES
 #------------------------------------------------------------------------------
@@ -63,6 +59,11 @@ MIN_DISK_SPACE_GB=10
 # Script version for logging
 SCRIPT_VERSION="2.0"
 
+# download kickstart file
+curl -fsSL \
+  -o "$KS_FILE" \
+  https://raw.githubusercontent.com/marcgauthier/zabbix-proxy/refs/heads/main/zabbix-kickstart.cfg
+  
 #------------------------------------------------------------------------------
 # LOGGING AND UTILITY FUNCTIONS
 #------------------------------------------------------------------------------
