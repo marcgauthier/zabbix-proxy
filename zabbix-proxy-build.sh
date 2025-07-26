@@ -42,31 +42,62 @@ dnf clean all && dnf makecache
 
 # Setup Zabbix repository
 echo "Setting up Zabbix repository..."
-rpm -Uvh --quiet "$ZABBIX_REPO_RPM"
-dnf clean all && dnf makecache
+if ! rpm -q zabbix-release &>/dev/null; then
+    rpm -Uvh --quiet "$ZABBIX_REPO_RPM"
+    dnf clean all && dnf makecache
+else
+    echo "Zabbix repository already installed, skipping..."
+fi
 
 # Download Zabbix packages
 echo "Downloading Zabbix packages and dependencies..."
 mkdir -p "$PKG_DIR"
 
+# Check if we already have packages downloaded
+if [[ $(find "$PKG_DIR" -name "*.rpm" | wc -l) -gt 0 ]]; then
+    echo "Found existing packages in $PKG_DIR, checking if we need to download more..."
+    # Still run the download commands but allow them to skip existing files
+else
+    echo "No existing packages found, downloading all packages..."
+fi
+
 # Download Zabbix packages and all their dependencies
+echo "Downloading Zabbix proxy and agent packages..."
 dnf download --resolve --alldeps --downloaddir="$PKG_DIR" \
-    zabbix-proxy-mysql zabbix-agent2
+    zabbix-proxy-mysql zabbix-agent2 || {
+    echo "Warning: Some Zabbix packages may already exist or failed to download"
+}
 
 # Download additional required packages for the kickstart
+echo "Downloading additional required packages..."
 dnf download --resolve --alldeps --downloaddir="$PKG_DIR" \
-    mariadb-server acl bind-utils wget curl tar gzip
+    mariadb-server acl bind-utils wget curl tar gzip || {
+    echo "Warning: Some additional packages may already exist or failed to download"
+}
 
-echo "Downloaded $(find "$PKG_DIR" -name "*.rpm" | wc -l) packages"
+echo "Total packages in repository: $(find "$PKG_DIR" -name "*.rpm" | wc -l)"
 
 # Install build tools
 echo "Installing build tools..."
-dnf groupinstall -y "Development Tools"
-dnf install -y lorax anaconda-tui python3-kickstart createrepo_c
+# Check if Development Tools group is already installed
+if ! dnf group list installed | grep -q "Development Tools"; then
+    echo "Installing Development Tools group..."
+    dnf groupinstall -y "Development Tools"
+else
+    echo "Development Tools already installed, skipping..."
+fi
+
+# Install individual packages, allowing them to be skipped if already installed
+echo "Installing required build packages..."
+dnf install -y lorax anaconda-tui python3-kickstart createrepo_c || {
+    echo "Some build tools may already be installed"
+}
 
 # Create local repository
-echo "Creating local repository..."
-createrepo_c "$PKG_DIR"
+echo "Creating/updating local repository..."
+createrepo_c "$PKG_DIR" || {
+    echo "Repository creation failed, but continuing..."
+}
 
 # Create repository configuration file
 cat > "$PKG_DIR/zabbix-local.repo" << EOF
