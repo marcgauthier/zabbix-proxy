@@ -29,8 +29,10 @@ set -euo pipefail
 IFS=$'\n\t'
 
 # download kickstart file
-curl -fsSL -o zabbix-kickstart.cfg https://raw.githubusercontent.com/marcgauthier/zabbix-proxy/refs/heads/main/zabbix-kickstart.cfg
-
+curl -fsSL \
+  -o "$KS_FILE" \
+  https://raw.githubusercontent.com/marcgauthier/zabbix-proxy/refs/heads/main/zabbix-kickstart.cfg
+  
 #------------------------------------------------------------------------------
 # GLOBAL CONFIGURATION VARIABLES
 #------------------------------------------------------------------------------
