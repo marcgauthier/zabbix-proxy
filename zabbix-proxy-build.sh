@@ -14,8 +14,12 @@ ZABBIX_REPO_RPM="https://repo.zabbix.com/zabbix/7.4/release/alma/9/noarch/zabbix
 PKG_DIR="/root/zabbix-pkgs"
 KS_FILE="/root/zabbix-kickstart.cfg"
 RESULT_DIR="/root/custom-iso"
+LOGS_DIR="/root/logs"
 
 echo "=== Starting Zabbix Proxy ISO Builder ==="
+
+# Create logs directory
+mkdir -p "$LOGS_DIR"
 
 # Check if running as root
 if [[ $EUID -ne 0 ]]; then
@@ -142,19 +146,41 @@ EOF
 echo "Cleaning up existing result directory..."
 if [[ -d "$RESULT_DIR" ]]; then
     echo "Removing existing $RESULT_DIR"
-    rm -rf "$RESULT_DIR"
+    # First, try to unmount any potential mount points
+    umount "$RESULT_DIR"/* 2>/dev/null || true
+    umount "$RESULT_DIR" 2>/dev/null || true
+    
+    # Kill any processes that might be using the directory
+    lsof +D "$RESULT_DIR" 2>/dev/null | awk 'NR>1 {print $2}' | xargs -r kill -9 2>/dev/null || true
+    
+    # Force remove with different approaches
+    rm -rf "$RESULT_DIR" 2>/dev/null || true
+    rm -rf "$RESULT_DIR"/* 2>/dev/null || true
+    rmdir "$RESULT_DIR" 2>/dev/null || true
+    
+    # Sync filesystem
+    sync
+    sleep 2
 fi
 
-# Ensure the result directory doesn't exist and wait a moment
-sleep 1
+# Create a fresh directory to ensure it exists but is empty
+mkdir -p "$RESULT_DIR"
+rm -rf "$RESULT_DIR"/* 2>/dev/null || true
 
-# Verify the directory is gone
-if [[ -d "$RESULT_DIR" ]]; then
-    echo "ERROR: Failed to remove $RESULT_DIR completely"
-    echo "Please manually remove it and try again:"
+# Final verification and manual cleanup if needed
+if [[ -d "$RESULT_DIR" ]] && [[ -n "$(ls -A "$RESULT_DIR" 2>/dev/null)" ]]; then
+    echo "ERROR: $RESULT_DIR still contains files after cleanup:"
+    ls -la "$RESULT_DIR"
+    echo ""
+    echo "Please manually remove the contents and try again:"
+    echo "  rm -rf '$RESULT_DIR'/*"
+    echo "  or"
     echo "  rm -rf '$RESULT_DIR'"
-    exit 1
+    echo ""
+    read -p "Press Enter after manual cleanup, or Ctrl+C to exit: "
 fi
+
+echo "Result directory cleaned and ready"
 
 # Create custom ISO
 echo "Creating custom ISO (this may take 30-60 minutes)..."
@@ -166,7 +192,7 @@ livemedia-creator \
     --releasever=9 \
     --tmp="$TMP_DIR" \
     --resultdir="$RESULT_DIR" \
-    --logfile="$RESULT_DIR/build.log" \
+    --logfile="$LOGS_DIR/build.log" \
     --no-virt
 
 # Find the created ISO
@@ -174,7 +200,7 @@ OUTPUT_ISO=$(find "$RESULT_DIR" -name "*.iso" -type f | head -n1)
 
 if [[ -z "$OUTPUT_ISO" ]]; then
     echo "ERROR: No output ISO found in $RESULT_DIR"
-    echo "Check the build log: $RESULT_DIR/build.log"
+    echo "Check the build log: $LOGS_DIR/build.log"
     exit 1
 fi
 
@@ -187,7 +213,7 @@ rm -rf "$TMP_DIR"
 echo "=== BUILD COMPLETED SUCCESSFULLY ==="
 echo "Custom ISO created: $OUTPUT_ISO"
 echo "Size: ${ISO_SIZE_MB}MB"
-echo "Build log: $RESULT_DIR/build.log"
+echo "Build log: $LOGS_DIR/build.log"
 echo ""
 echo "Next steps:"
 echo "1. Test the ISO in a virtual machine"
