@@ -142,46 +142,6 @@ cat >> "$MODIFIED_KS" << EOF
 repo --name="zabbix-local" --baseurl="file://$PKG_DIR"
 EOF
 
-# Clean up existing result directory more thoroughly
-echo "Cleaning up existing result directory..."
-if [[ -d "$RESULT_DIR" ]]; then
-    echo "Removing existing $RESULT_DIR"
-    # First, try to unmount any potential mount points
-    umount "$RESULT_DIR"/* 2>/dev/null || true
-    umount "$RESULT_DIR" 2>/dev/null || true
-    
-    # Kill any processes that might be using the directory
-    lsof +D "$RESULT_DIR" 2>/dev/null | awk 'NR>1 {print $2}' | xargs -r kill -9 2>/dev/null || true
-    
-    # Force remove with different approaches
-    rm -rf "$RESULT_DIR" 2>/dev/null || true
-    rm -rf "$RESULT_DIR"/* 2>/dev/null || true
-    rmdir "$RESULT_DIR" 2>/dev/null || true
-    
-    # Sync filesystem
-    sync
-    sleep 2
-fi
-
-# Create a fresh directory to ensure it exists but is empty
-mkdir -p "$RESULT_DIR"
-rm -rf "$RESULT_DIR"/* 2>/dev/null || true
-
-# Final verification and manual cleanup if needed
-if [[ -d "$RESULT_DIR" ]] && [[ -n "$(ls -A "$RESULT_DIR" 2>/dev/null)" ]]; then
-    echo "ERROR: $RESULT_DIR still contains files after cleanup:"
-    ls -la "$RESULT_DIR"
-    echo ""
-    echo "Please manually remove the contents and try again:"
-    echo "  rm -rf '$RESULT_DIR'/*"
-    echo "  or"
-    echo "  rm -rf '$RESULT_DIR'"
-    echo ""
-    read -p "Press Enter after manual cleanup, or Ctrl+C to exit: "
-fi
-
-echo "Result directory cleaned and ready"
-
 # Create custom ISO
 echo "Creating custom ISO (this may take 30-60 minutes)..."
 livemedia-creator \
