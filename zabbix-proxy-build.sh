@@ -16,7 +16,7 @@ ALMA_ISO_PATH="/root/downloads/AlmaLinux-${ALMA_VERSION}-x86_64-minimal.iso"
 
 # Build configuration
 KS_FILE="/root/almalinux-appliance-kickstart.cfg"
-RESULT_DIR="/root/custom-iso"
+RESULT_DIR="/root/custom-iso-$(date +%Y%m%d-%H%M%S)"
 LOGS_DIR="/root/logs"
 WORK_DIR="/tmp/appliance-build-$$"
 
@@ -78,7 +78,7 @@ if [[ -f /.dockerenv ]] || grep -q container /proc/1/cgroup 2>/dev/null; then
 fi
 
 # Create necessary directories
-mkdir -p "$LOGS_DIR" "$(dirname "$ALMA_ISO_PATH")" "$RESULT_DIR" "$WORK_DIR"
+mkdir -p "$LOGS_DIR" "$(dirname "$ALMA_ISO_PATH")" "$WORK_DIR"
 log "Created working directories"
 
 # Check available disk space (need at least 15GB for safety)
@@ -271,12 +271,6 @@ done
 # Prepare Build Environment
 #─────────────────────────────────────────────────────────────────────────────
 log "Preparing build environment..."
-
-# Clean previous build results
-if [[ -d "$RESULT_DIR" ]] && [[ -n "$(ls -A "$RESULT_DIR" 2>/dev/null)" ]]; then
-    log "Cleaning previous build results..."
-    rm -rf "${RESULT_DIR:?}"/*
-fi
 
 # Verify lorax installation
 LORAX_SHARE="/usr/share/lorax"
