@@ -1,283 +1,479 @@
-#!/usr/bin/env bash
-#
-# AlmaLinux Appliance ISO Builder
-# Creates a custom AlmaLinux ISO with minimal base configuration
-#
-# Usage: ./almalinux-appliance-build.sh
-#
-set -euo pipefail
+# AlmaLinux + Zabbix Proxy Appliance Kickstart Configuration
+# Compatible with livemedia-creator --make-iso
+# This script creates a minimal AlmaLinux system optimized for Zabbix Proxy deployment
 
-#─────────────────────────────────────────────────────────────────────────────https://github.com/marcgauthier/zabbix-proxy/tree/main
-# Configuration
-#─────────────────────────────────────────────────────────────────────────────
-ALMA_VERSION="9.6"
-ALMA_ISO_URL="https://repo.almalinux.org/almalinux/${ALMA_VERSION}/isos/x86_64/AlmaLinux-${ALMA_VERSION}-x86_64-minimal.iso"
-ALMA_ISO_PATH="/root/downloads/AlmaLinux-${ALMA_VERSION}-x86_64-minimal.iso"
+# ================================
+# 1) Installation Source
+# ================================
+install
+cdrom
 
-# Updated paths and naming
-KS_FILE="/root/almalinux-appliance-kickstart.cfg"
-RESULT_DIR="/root/custom-iso"
-LOGS_DIR="/root/logs"
-WORK_DIR="/tmp/appliance-build-$$"
+# ================================
+# Basic System Configuration
+# ================================
 
-echo "=== Starting AlmaLinux Appliance ISO Builder ==="
-
-#─────────────────────────────────────────────────────────────────────────────
-# Prerequisites & Environment Checks
-#─────────────────────────────────────────────────────────────────────────────
-echo "[1/6] Checking prerequisites..."
-
-# Verify running as root
-if [[ $EUID -ne 0 ]]; then
-    echo "ERROR: Must run as root" >&2
-    exit 1
-fi
-
-# Create necessary directories
-mkdir -p "$LOGS_DIR" "$(dirname "$ALMA_ISO_PATH")" "$RESULT_DIR" "$WORK_DIR"
-echo "    → Created working directories"
-
-# Check available disk space (need at least 8GB free)
-AVAILABLE_SPACE=$(df /tmp | awk 'NR==2 {print $4}')
-if [[ $AVAILABLE_SPACE -lt 8388608 ]]; then  # 8GB in KB
-    echo "WARNING: Less than 8GB free space in /tmp. Build may fail." >&2
-fi
-
-#─────────────────────────────────────────────────────────────────────────────
-# 2) Kickstart File Setup
-#─────────────────────────────────────────────────────────────────────────────
-echo "[2/6] Setting up kickstart configuration..."
-
-# Download kickstart file if it doesn't exist locally
-if [[ ! -f "$KS_FILE" ]]; then
-    echo "    → Kickstart file not found locally, attempting to download..."
-    
-    # You can modify this URL to point to your kickstart file location
-    KICKSTART_URL="https://raw.githubusercontent.com/marcgauthier/zabbix-proxy/refs/heads/main/zabbix-kickstart.cfg"
-    
-    
-    if curl -fsSL -o "$KS_FILE" "$KICKSTART_URL" 2>/dev/null; then
-        echo "    → Successfully downloaded kickstart file"
-    else
-        echo "    → Download failed. Creating template kickstart file..."
-        echo "    → Please edit $KS_FILE with your configuration"
-        
-        # Create a basic template if download fails
-        cat > "$KS_FILE" << 'EOF'
-# AlmaLinux Appliance Kickstart Template
-# Edit this file with your specific configuration
-
+# Set system language and keyboard layout
 lang en_US.UTF-8
 keyboard us
+
+# Configure timezone to UTC for consistent logging
 timezone UTC --utc
+
+# Network configuration - use DHCP with hostname prompt during installation
+# Note: Hostname will be set interactively during installation
 network --bootproto=dhcp --device=link --activate
+
+# ================================
+# Storage Configuration
+# ================================
+
+# Initialize disk - clear all existing partitions
 zerombr
 clearpart --all --initlabel
-part / --size=4096 --fstype=ext4
-part /data --size=2048 --fstype=ext4 --grow
+
+# Create partition layout
+# Root partition: 4GB for system files
+part /      --size=4096 --fstype=ext4
+# Data partition: 90GB minimum, expandable for Zabbix data and logs with ACL support
+part /data  --size=92160 --fstype=ext4 --fsoptions="acl" --grow
+
+# ================================
+# User Authentication Setup
+# ================================
+
+# Lock root account for security (no direct root login)
 rootpw --lock
-user --name=admin --groups=wheel --password=changeme --plaintext
+
+# Create monitoring user for system management (no sudo access for security)
+# Password will be set during first boot for security
+user --name=zabbixlog --password=temppass123 --plaintext
+
+# ================================
+# System Services Configuration
+# ================================
+
+# Enable essential services
 services --enabled=NetworkManager,chronyd,firewalld
+
+# Disable SSH for security (can be re-enabled if needed)
 services --disabled=sshd
 
+# ================================
+# Package Selection
+# ================================
+
 %packages
+# Core system packages
 @core
 @standard
+
+# Essential system components
 kernel
 systemd
 NetworkManager
 firewalld
 chrony
+
+# Mathematical calculations support for pre-installation scripts
+bc
+
+# ACL support for file permissions
+acl
+
+# Remove unnecessary packages to minimize footprint
+-@guest-agents
+-aic94xx-firmware*
+-alsa-*
+-btrfs-progs*
+-ivtv-firmware
+-iwl*firmware
+-libertas*firmware
+-plymouth*
 %end
 
-%post --log=/root/ks-post.log
-echo "Post-installation setup completed" >> /root/ks-post.log
-%end
-EOF
-        echo "ERROR: Please edit the template kickstart file at $KS_FILE before continuing" >&2
-        exit 1
-    fi
-else
-    echo "    → Using existing kickstart file: $KS_FILE"
-fi
+# ================================
+# Pre-Installation Disk Check
+# ================================
 
-# Verify kickstart file doesn't have external repo URLs (they cause issues with livemedia-creator)
-if grep -E '^(url|repo).*(http|https)' "$KS_FILE" >/dev/null 2>&1; then
-    echo "WARNING: Kickstart contains external URLs. This may cause build issues." >&2
-    echo "         Consider using only packages from the base ISO." >&2
-fi
+%pre --log=/tmp/ks-pre.log
 
-# Basic kickstart syntax validation
-if ! ksflatten "$KS_FILE" >/dev/null 2>&1; then
-    echo "ERROR: Kickstart file has syntax errors" >&2
-    echo "       Run: ksflatten $KS_FILE" >&2
-    exit 1
-fi
-echo "    → Kickstart file validated successfully"
+echo "Starting pre-installation disk validation..." >> /tmp/ks-pre.log
 
-#─────────────────────────────────────────────────────────────────────────────
-# 3) Download AlmaLinux ISO
-#─────────────────────────────────────────────────────────────────────────────
-echo "[3/6] Ensuring AlmaLinux ISO is available..."
+# Function to convert size to MB
+convert_to_mb() {
+    local size=$1
+    local unit=$(echo $size | sed 's/[0-9.]//g' | tr '[:lower:]' '[:upper:]')
+    local number=$(echo $size | sed 's/[^0-9.]//g')
+    
+    case $unit in
+        "GB"|"G")
+            echo $(echo "$number * 1024" | bc -l | cut -d. -f1)
+            ;;
+        "TB"|"T")
+            echo $(echo "$number * 1024 * 1024" | bc -l | cut -d. -f1)
+            ;;
+        "MB"|"M"|"")
+            echo ${number%.*}
+            ;;
+        *)
+            echo 0
+            ;;
+    esac
+}
 
-if [[ ! -f "$ALMA_ISO_PATH" ]]; then
-    echo "    → Downloading AlmaLinux $ALMA_VERSION ISO..."
-    if ! curl -fsSL --progress-bar -o "$ALMA_ISO_PATH" "$ALMA_ISO_URL"; then
-        echo "ERROR: Failed to download AlmaLinux ISO" >&2
-        exit 1
-    fi
-    echo "    → Download completed"
-else
-    echo "    → ISO already exists: $ALMA_ISO_PATH"
-fi
+# Check available disk space
+REQUIRED_SIZE_MB=94208  # 90GB + 4GB (root) = 94GB in MB
+MIN_DATA_SIZE_MB=92160  # 90GB in MB
 
-# Verify ISO integrity (basic check)
-if ! file "$ALMA_ISO_PATH" | grep -q "ISO 9660"; then
-    echo "ERROR: Downloaded file is not a valid ISO" >&2
-    exit 1
-fi
+echo "Checking disk space requirements..." >> /tmp/ks-pre.log
+echo "Required total space: ${REQUIRED_SIZE_MB}MB (94GB)" >> /tmp/ks-pre.log
+echo "Required /data space: ${MIN_DATA_SIZE_MB}MB (90GB)" >> /tmp/ks-pre.log
 
-ISO_SIZE=$(du -m "$ALMA_ISO_PATH" | cut -f1)
-echo "    → ISO size: ${ISO_SIZE}MB"
+# Get the largest available disk
+LARGEST_DISK=""
+LARGEST_SIZE=0
 
-#─────────────────────────────────────────────────────────────────────────────
-# 4) Install Required Build Tools
-#─────────────────────────────────────────────────────────────────────────────
-echo "[4/6] Installing build dependencies..."
-
-# Update system first
-echo "    → Updating system packages..."
-dnf update -y >/dev/null 2>&1 || echo "    → Update completed with warnings"
-
-# Install required packages for ISO building
-BUILD_PACKAGES=(
-    "lorax"                    # Main ISO building tool
-    "anaconda"                 # Installer framework
-    "python3-kickstart"        # Kickstart file processing
-    "createrepo_c"            # Repository creation (if needed)
-    "squashfs-tools"          # For ISO compression
-    "genisoimage"             # ISO creation utilities
-)
-
-echo "    → Installing build tools..."
-for pkg in "${BUILD_PACKAGES[@]}"; do
-    if ! rpm -q "$pkg" >/dev/null 2>&1; then
-        echo "    → Installing $pkg..."
-        dnf install -y "$pkg" >/dev/null 2>&1 || echo "      → Warning: Failed to install $pkg"
+for disk in /dev/sd? /dev/vd? /dev/nvme?n? /dev/hd?; do
+    if [ -b "$disk" ]; then
+        # Get disk size using different methods
+        if command -v lsblk >/dev/null 2>&1; then
+            DISK_SIZE=$(lsblk -b -d -o SIZE "$disk" 2>/dev/null | tail -n1)
+            DISK_SIZE_MB=$((DISK_SIZE / 1024 / 1024))
+        elif [ -f /sys/block/$(basename $disk)/size ]; then
+            SECTORS=$(cat /sys/block/$(basename $disk)/size)
+            DISK_SIZE_MB=$((SECTORS * 512 / 1024 / 1024))
+        else
+            # Fallback method using fdisk
+            DISK_SIZE_INFO=$(fdisk -l "$disk" 2>/dev/null | grep "Disk $disk" | head -n1)
+            if echo "$DISK_SIZE_INFO" | grep -q "GB"; then
+                DISK_SIZE_GB=$(echo "$DISK_SIZE_INFO" | grep -o '[0-9.]*GB' | head -n1 | sed 's/GB//')
+                DISK_SIZE_MB=$(echo "$DISK_SIZE_GB * 1024" | bc -l | cut -d. -f1)
+            elif echo "$DISK_SIZE_INFO" | grep -q "TB"; then
+                DISK_SIZE_TB=$(echo "$DISK_SIZE_INFO" | grep -o '[0-9.]*TB' | head -n1 | sed 's/TB//')
+                DISK_SIZE_MB=$(echo "$DISK_SIZE_TB * 1024 * 1024" | bc -l | cut -d. -f1)
+            else
+                continue
+            fi
+        fi
+        
+        echo "Found disk: $disk with size ${DISK_SIZE_MB}MB" >> /tmp/ks-pre.log
+        
+        if [ "$DISK_SIZE_MB" -gt "$LARGEST_SIZE" ]; then
+            LARGEST_SIZE=$DISK_SIZE_MB
+            LARGEST_DISK=$disk
+        fi
     fi
 done
 
-echo "    → Build tools installation completed"
+echo "Largest disk found: $LARGEST_DISK with ${LARGEST_SIZE}MB" >> /tmp/ks-pre.log
 
-#─────────────────────────────────────────────────────────────────────────────
-# 5) Prepare Build Environment
-#─────────────────────────────────────────────────────────────────────────────
-echo "[5/6] Preparing build environment..."
-
-# Clean any previous build artifacts
-if [[ -d "$RESULT_DIR" ]]; then
-    echo "    → Cleaning previous build results..."
-    rm -rf "${RESULT_DIR:?}"/*
-fi
-
-# Set up temporary directories with proper permissions
-chmod 755 "$WORK_DIR"
-echo "    → Work directory: $WORK_DIR"
-
-# Configure SELinux context if enabled
-if getenforce 2>/dev/null | grep -q "Enforcing"; then
-    echo "    → SELinux is enforcing, setting contexts..."
-    semanage fcontext -a -t admin_home_t "$WORK_DIR" 2>/dev/null || true
-    restorecon -R "$WORK_DIR" 2>/dev/null || true
-fi
-
-#─────────────────────────────────────────────────────────────────────────────
-# 6) Build the Custom ISO
-#─────────────────────────────────────────────────────────────────────────────
-echo "[6/6] Building custom ISO (this may take 30-60 minutes)..."
-echo "    → Build started at: $(date)"
-echo "    → Log file: $LOGS_DIR/build.log"
-echo "    → Please be patient, this process takes time..."
-
-# Create the ISO using livemedia-creator
-LIVEMEDIA_CMD=(
-    "livemedia-creator"
-    "--make-iso"                         # Create bootable ISO
-    "--iso=$ALMA_ISO_PATH"               # Source ISO
-    "--ks=$KS_FILE"                      # Kickstart configuration
-    "--project=AlmaLinux-Appliance"      # Project name
-    "--releasever=9"                     # AlmaLinux major version
-    "--tmp=$WORK_DIR"                    # Temporary build directory
-    "--resultdir=$RESULT_DIR"            # Output directory
-    "--logfile=$LOGS_DIR/build.log"      # Build log
-    "--no-virt"                          # Don't use virtualization
-    "--image-only"                       # Skip package installation verification
-)
-
-# Execute the build command
-if "${LIVEMEDIA_CMD[@]}" 2>&1 | tee -a "$LOGS_DIR/build-output.log"; then
-    BUILD_SUCCESS=true
-else
-    BUILD_SUCCESS=false
-fi
-
-echo "    → Build completed at: $(date)"
-
-#─────────────────────────────────────────────────────────────────────────────
-# Results and Cleanup
-#─────────────────────────────────────────────────────────────────────────────
-echo
-echo "=== Build Results ==="
-
-# Check for successful build
-OUTPUT_ISO=$(find "$RESULT_DIR" -type f -name '*.iso' 2>/dev/null | head -n1)
-
-if [[ -n "$OUTPUT_ISO" && -f "$OUTPUT_ISO" && "$BUILD_SUCCESS" == "true" ]]; then
-    # Success
-    ISO_SIZE=$(du -m "$OUTPUT_ISO" | cut -f1)
-    ISO_NAME=$(basename "$OUTPUT_ISO")
-    
-    echo "✓ BUILD SUCCESSFUL"
-    echo "  ISO File: $OUTPUT_ISO"
-    echo "  ISO Name: $ISO_NAME"
-    echo "  ISO Size: ${ISO_SIZE}MB"
-    echo "  Build Log: $LOGS_DIR/build.log"
-    echo
-    echo "=== Next Steps ==="
-    echo "1. Test the ISO in a virtual machine"
-    echo "2. Verify the first-boot script works correctly"
-    echo "3. Deploy to target hardware"
-    echo
-    echo "=== VM Testing Command Example ==="
-    echo "qemu-system-x86_64 -m 2048 -cdrom '$OUTPUT_ISO' -boot d"
-    
-else
-    # Failure
-    echo "✗ BUILD FAILED"
-    echo "  Check build log: $LOGS_DIR/build.log"
-    echo "  Check output log: $LOGS_DIR/build-output.log"
-    echo
-    echo "=== Troubleshooting ==="
-    echo "1. Verify kickstart syntax: ksflatten $KS_FILE"
-    echo "2. Check available disk space: df -h /tmp"
-    echo "3. Review build logs for specific errors"
-    
-    # Show last few lines of build log for quick diagnosis
-    if [[ -f "$LOGS_DIR/build.log" ]]; then
-        echo
-        echo "=== Last 10 lines of build log ==="
-        tail -10 "$LOGS_DIR/build.log"
-    fi
-    
+# Validate disk size
+if [ -z "$LARGEST_DISK" ]; then
+    echo "ERROR: No suitable disk found!" >> /tmp/ks-pre.log
+    echo "FATAL ERROR: No disk detected for installation"
+    echo "Please ensure a disk of at least 94GB is available"
     exit 1
 fi
 
-# Cleanup temporary files
-echo
-echo "=== Cleanup ==="
-if [[ -d "$WORK_DIR" ]]; then
-    echo "Removing temporary build directory..."
-    rm -rf "$WORK_DIR"
+if [ "$LARGEST_SIZE" -lt "$REQUIRED_SIZE_MB" ]; then
+    LARGEST_SIZE_GB=$((LARGEST_SIZE / 1024))
+    echo "ERROR: Insufficient disk space!" >> /tmp/ks-pre.log
+    echo "FATAL ERROR: Disk too small for installation"
+    echo "Available: ${LARGEST_SIZE_GB}GB"
+    echo "Required: 94GB minimum (4GB root + 90GB data)"
+    echo ""
+    echo "Please use a disk with at least 94GB of space"
+    exit 1
 fi
 
-echo "Build process completed successfully!"
+# Calculate actual /data partition size after accounting for root partition
+AVAILABLE_DATA_SIZE=$((LARGEST_SIZE - 4096))
+AVAILABLE_DATA_GB=$((AVAILABLE_DATA_SIZE / 1024))
+
+if [ "$AVAILABLE_DATA_SIZE" -lt "$MIN_DATA_SIZE_MB" ]; then
+    echo "ERROR: Insufficient space for /data partition!" >> /tmp/ks-pre.log
+    echo "FATAL ERROR: Insufficient space for /data partition"
+    echo "Available for /data: ${AVAILABLE_DATA_GB}GB"
+    echo "Required for /data: 90GB minimum"
+    echo ""
+    echo "Please use a disk with at least 94GB of space"
+    exit 1
+fi
+
+echo "Disk validation successful!" >> /tmp/ks-pre.log
+echo "Will create /data partition with ${AVAILABLE_DATA_GB}GB" >> /tmp/ks-pre.log
+
+# Success message
+echo "DISK VALIDATION PASSED"
+echo "Target disk: $LARGEST_DISK (${LARGEST_SIZE_GB}GB total)"
+echo "/data partition will be: ${AVAILABLE_DATA_GB}GB"
+echo ""
+
+%end
+
+# ================================
+# Post-Installation Configuration
+# ================================
+
+%post --log=/root/ks-post.log
+
+echo "Starting post-installation configuration..." >> /root/ks-post.log
+
+# --------------------------------
+# Partition Size Verification
+# --------------------------------
+
+echo "Verifying partition sizes..." >> /root/ks-post.log
+
+# Check /data partition size
+DATA_SIZE_KB=$(df /data | tail -n1 | awk '{print $2}')
+DATA_SIZE_GB=$((DATA_SIZE_KB / 1024 / 1024))
+
+echo "/data partition size: ${DATA_SIZE_GB}GB" >> /root/ks-post.log
+
+if [ "$DATA_SIZE_GB" -lt 85 ]; then
+    echo "WARNING: /data partition smaller than expected (${DATA_SIZE_GB}GB)" >> /root/ks-post.log
+    echo "This may impact Zabbix proxy performance" >> /root/ks-post.log
+fi
+
+# --------------------------------
+# Directory Structure Setup
+# --------------------------------
+
+# Create essential directories for Zabbix proxy operation
+mkdir -p /data/logs /data/zabbix-pkgs /data/zabbix
+
+echo "Created directory structure" >> /root/ks-post.log
+
+# --------------------------------
+# Persistent Logging Configuration
+# --------------------------------
+
+# Configure /var/log to use persistent storage on /data partition
+# This ensures logs survive system updates and reboots
+cat >> /etc/fstab << 'EOF'
+/data/logs /var/log none bind 0 0
+EOF
+
+# Preserve existing log files before setting up bind mount
+if [ -d /var/log ] && [ "$(ls -A /var/log 2>/dev/null)" ]; then
+    echo "Preserving existing log files..." >> /root/ks-post.log
+    cp -a /var/log/* /data/logs/ 2>/dev/null || true
+fi
+
+# Mount the bind mount for immediate use
+mount --bind /data/logs /var/log
+
+# Configure systemd journal for persistent storage
+mkdir -p /data/logs/journal
+sed -i 's/#Storage=auto/Storage=persistent/' /etc/systemd/journald.conf
+
+echo "Configured persistent logging" >> /root/ks-post.log
+
+# --------------------------------
+# User Permissions Setup
+# --------------------------------
+
+# Grant zabbixlog user read access to log files
+# This allows log monitoring without full root privileges
+setfacl -m u:zabbixlog:rX /data/logs
+setfacl -R -m d:u:zabbixlog:rX /data/logs
+
+echo "Configured user permissions for zabbixlog" >> /root/ks-post.log
+
+# --------------------------------
+# First Boot Script Creation
+# --------------------------------
+
+# Create interactive first-boot configuration script
+# This handles security setup that requires user interaction
+cat > /root/firstboot.sh << 'FIRSTBOOT'
+#!/bin/bash
+
+echo "==========================================="
+echo "  Zabbix Proxy Appliance First Boot Setup"
+echo "==========================================="
+echo
+
+# --------------------------------
+# System Information Display
+# --------------------------------
+
+echo "System Information:"
+echo "  Hostname: $(hostname)"
+echo "  /data partition: $(df -h /data | tail -n1 | awk '{print $2}') available"
+echo
+
+# --------------------------------
+# User Password Configuration
+# --------------------------------
+
+echo "Setting up zabbixlog user password..."
+echo "The zabbixlog user is for monitoring purposes only (no administrative access)."
+echo
+
+while true; do
+    echo "Enter a secure password for the 'zabbixlog' user:"
+    read -s -p "Password: " USER_PASS
+    echo
+    read -s -p "Confirm password: " USER_PASS2
+    echo
+    
+    if [[ "$USER_PASS" == "$USER_PASS2" ]]; then
+        if [[ ${#USER_PASS} -ge 8 ]]; then
+            echo "$USER_PASS" | passwd zabbixlog --stdin
+            if [ $? -eq 0 ]; then
+                echo "Password set successfully for zabbixlog user"
+                break
+            else
+                echo "ERROR: Failed to set password. Please try again."
+                echo
+            fi
+        else
+            echo "ERROR: Password must be at least 8 characters long."
+            echo
+        fi
+    else
+        echo "ERROR: Passwords don't match. Please try again."
+        echo
+    fi
+done
+echo
+
+# --------------------------------
+# PSK Key Configuration
+# --------------------------------
+
+echo "Configuring Zabbix PSK authentication..."
+while true; do
+    read -s -p "Enter 32-character PSK key: " PSK
+    echo
+    read -s -p "Confirm PSK key: " PSK2
+    echo
+    
+    if [[ "$PSK" == "$PSK2" && ${#PSK} -eq 32 ]]; then
+        # Save PSK key with secure permissions
+        mkdir -p /data/zabbix
+        echo "$PSK" > /data/zabbix/psk.key
+        chmod 600 /data/zabbix/psk.key
+        chown root:root /data/zabbix/psk.key
+        echo "PSK key configured successfully"
+        break
+    else
+        echo "ERROR: PSK keys don't match or wrong length. Must be exactly 32 characters."
+        echo
+    fi
+done
+echo
+
+# --------------------------------
+# Firewall Security Configuration
+# --------------------------------
+
+echo "Configuring firewall rules..."
+
+# Set default zone to drop (deny all by default)
+firewall-cmd --permanent --set-default-zone=drop
+
+# Define private network ranges for internal communication
+PRIVATE_NETS=("10.0.0.0/8" "172.16.0.0/12" "192.168.0.0/16")
+
+# Allow internal networks access to required services
+for net in "${PRIVATE_NETS[@]}"; do
+    firewall-cmd --permanent --zone=internal --add-source="$net"
+done
+
+# Open required ports for Zabbix proxy operation
+firewall-cmd --permanent --zone=internal --add-port=10051/tcp  # Zabbix proxy port
+firewall-cmd --permanent --zone=internal --add-port=53/udp    # DNS queries
+firewall-cmd --permanent --zone=internal --add-port=80/tcp    # HTTP
+firewall-cmd --permanent --zone=internal --add-port=443/tcp   # HTTPS
+
+# Apply firewall configuration
+firewall-cmd --reload
+echo "Firewall configured with secure defaults"
+echo
+
+# --------------------------------
+# Final Security Hardening
+# --------------------------------
+
+echo "Applying final security settings..."
+
+# Ensure SSH remains disabled
+systemctl disable sshd 2>/dev/null || true
+
+# Completely disable root account
+passwd -l root
+usermod -s /sbin/nologin root
+
+# Remove any sudo access and disable sudo service entirely
+systemctl disable sudo 2>/dev/null || true
+systemctl mask sudo 2>/dev/null || true
+chmod 000 /etc/sudoers 2>/dev/null || true
+
+# Remove wheel group privileges
+sed -i 's/^%wheel/#%wheel/' /etc/sudoers 2>/dev/null || true
+
+echo "Security hardening complete - root disabled, sudo removed"
+echo
+
+# --------------------------------
+# System Information Display
+# --------------------------------
+
+echo "==========================================="
+echo "  Network Interface Information"
+echo "==========================================="
+
+# Display MAC addresses for network interface identification
+ip -o link show | awk '/link\/ether/ {print $2": "$18}' | grep -v lo: | while read line; do
+    echo "  $line"
+done
+
+echo
+echo "==========================================="
+echo "  Final System Status"
+echo "==========================================="
+echo "Hostname: $(hostname)"
+echo "/data partition: $(df -h /data | tail -n1 | awk '{print $2" ("$5" used)"}')"
+echo
+
+echo "==========================================="
+echo "  Setup Complete!"
+echo "==========================================="
+echo "System is ready for Zabbix Proxy installation"
+echo "You can now log in as 'zabbixlog' with the password you set"
+echo "Reboot to complete the configuration process"
+echo
+
+# --------------------------------
+# Cleanup
+# --------------------------------
+
+# Remove this script to prevent re-execution
+rm -f /root/firstboot.sh
+sed -i '/firstboot.sh/d' /etc/rc.d/rc.local
+
+FIRSTBOOT
+
+# Make firstboot script executable
+chmod +x /root/firstboot.sh
+
+echo "Created first boot configuration script" >> /root/ks-post.log
+
+# --------------------------------
+# Schedule First Boot Script
+# --------------------------------
+
+# Ensure rc.local exists and is executable
+touch /etc/rc.d/rc.local
+chmod +x /etc/rc.d/rc.local
+
+# Add firstboot script to run on first boot
+echo "/root/firstboot.sh" >> /etc/rc.d/rc.local
+
+echo "Post-installation configuration completed" >> /root/ks-post.log
+echo "Final /data partition size: ${DATA_SIZE_GB}GB" >> /root/ks-post.log
+
+%end
