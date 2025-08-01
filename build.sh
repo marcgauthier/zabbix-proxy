@@ -1,3 +1,5 @@
+#step 1: build an ISO that contains linux and zabbix packages plus install.sh
+#step 2: another script will create another ISO using kickstart to install two partitions and the files from ISO to mounted disk and set install.sh to run on first boot
 #!/usr/bin/env bash
 set -euo pipefail
 
@@ -6,7 +8,7 @@ if [[ $EUID -ne 0 ]]; then
   exit 1
 fi
 
-echo "🚀 Starting Zabbix Proxy ISO build process... version 1.32"
+echo "🚀 Starting Zabbix Proxy ISO build process... version 1.33"
 
 
 ### === CONFIGURATION === ###
@@ -100,7 +102,7 @@ echo "📂 Injecting custom RPMs and scripts…"
 # Copy RPMs, overwriting any existing ones
 cp -f "${OVERLAY_RPMS}/"*.rpm "${WORK_DIR}/Packages/" 2>/dev/null || true
 mkdir -p "${WORK_DIR}/root"
-cp "${OVERLAY_ROOT}/install.sh" "${WORK_DIR}/root/"
+cp -f "${OVERLAY_ROOT}/install.sh" "${WORK_DIR}/root/" 2>/dev/null || true
 echo "✅ Files injected"
 echo ""
 
