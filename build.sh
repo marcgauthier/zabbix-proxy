@@ -33,6 +33,13 @@ echo "🔧 Installing build dependencies (dnf-plugins-core, createrepo_c, xorris
 dnf install -y dnf-plugins-core createrepo_c xorriso
 echo ""
 
+# 1.5) Add Zabbix repository
+echo "📦 Adding Zabbix repository…"
+rpm -Uvh https://repo.zabbix.com/zabbix/7.4/release/alma/9/noarch/zabbix-release-latest-7.4.el9.noarch.rpm
+dnf clean all
+echo "✅ Zabbix repository added"
+echo ""
+
 # 2) Prepare directories
 echo "📁 Preparing directories…"
 rm -rf "${DOWNLOAD_DIR}" "${WORK_DIR}" "${MOUNT_DIR}" "${OUTPUT_DIR}"
