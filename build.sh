@@ -42,7 +42,16 @@ echo ""
 
 ### 0) Add Zabbix repository and install livemedia-creator ###
 echo "🔑 Adding Zabbix repository..."
-rpm --import https://repo.zabbix.com/zabbix-official-repo.key
+# Download and import Zabbix GPG key using curl to avoid SHA1 issues
+# Alternative: wget -qO- https://repo.zabbix.com/zabbix-official-repo.key | rpm --import -
+if ! curl -fsSL https://repo.zabbix.com/zabbix-official-repo.key | rpm --import -; then
+    echo "⚠️  Failed to import key via curl, trying alternative method..."
+    # Alternative method: download to temp file and import
+    TEMP_KEY_FILE=$(mktemp)
+    curl -fsSL -o "${TEMP_KEY_FILE}" https://repo.zabbix.com/zabbix-official-repo.key
+    rpm --import "${TEMP_KEY_FILE}"
+    rm -f "${TEMP_KEY_FILE}"
+fi
 cat > /etc/yum.repos.d/zabbix.repo << EOF
 [zabbix]
 name=Zabbix Official Repository - \$basearch
