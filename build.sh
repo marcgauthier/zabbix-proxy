@@ -6,7 +6,8 @@ if [[ $EUID -ne 0 ]]; then
   exit 1
 fi
 
-echo "🚀 Starting Zabbix Proxy ISO build process... version 1.25"
+echo "🚀 Starting Zabbix Proxy ISO build process... version 1.26"
+
 
 ### === CONFIGURATION === ###
 ALMA_VERSION="9.6"
@@ -20,6 +21,12 @@ OVERLAY_RPMS="${WORK_DIR}/Packages"
 OVERLAY_ROOT="${WORK_DIR}/root"
 OUTPUT_DIR="./iso"
 OUTPUT_ISO="${OUTPUT_DIR}/AlmaLinux-${ALMA_VERSION}-custom.iso"
+
+# Clean up work folder at start
+echo "🧹 Cleaning up work folder..."
+rm -rf "${WORK_DIR}"
+echo "✅ Work folder cleaned"
+
 
 # URL to your install.sh
 INSTALL_SH_URL="https://raw.githubusercontent.com/marcgauthier/zabbix-proxy/main/install.sh"
