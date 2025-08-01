@@ -147,9 +147,10 @@ echo "     - Configuring system"
 echo "     - Creating final ISO image"
 echo ""
 livemedia-creator \
+  --title "Zabbix Proxy Installer" \
   --ks "${KS_FILE}" \
   --releasever "${ALMA_VERSION}" \
-  --copy-in "${OVERLAY_DIR}:/" \
+  --copy-in "${OVERLAY_DIR}:/files" \
   --project "ZabbixProxyInstaller" \
   --make-iso \
   --iso "${OUTPUT_ISO}" \
