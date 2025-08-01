@@ -6,7 +6,7 @@ if [[ $EUID -ne 0 ]]; then
   exit 1
 fi
 
-echo "🚀 Starting Zabbix Proxy ISO build process... version 1.27"
+echo "🚀 Starting Zabbix Proxy ISO build process... version 1.28"
 
 
 ### === CONFIGURATION === ###
@@ -42,17 +42,17 @@ echo "🔧 Installing build dependencies (dnf-plugins-core, createrepo_c, xorris
 dnf install -y dnf-plugins-core createrepo_c xorriso
 echo ""
 
-# 1.5) Download Zabbix repository package
-echo "📦 Downloading Zabbix repository package…"
-curl -L --progress-bar -o "${OVERLAY_RPMS}/zabbix-release-latest-7.4.el9.noarch.rpm" "https://repo.zabbix.com/zabbix/7.4/release/alma/9/noarch/zabbix-release-latest-7.4.el9.noarch.rpm"
-echo "✅ Zabbix repository package downloaded to ${OVERLAY_RPMS}"
-echo ""
-
 # 2) Prepare directories
 echo "📁 Preparing directories…"
 rm -rf "${DOWNLOAD_DIR}" "${WORK_DIR}" "${MOUNT_DIR}" "${OUTPUT_DIR}"
 mkdir -p "${DOWNLOAD_DIR}" "${WORK_DIR}" "${MOUNT_DIR}" "${OVERLAY_RPMS}" "${OVERLAY_ROOT}" "${OUTPUT_DIR}"
 echo "✅ Directories ready"
+echo ""
+
+# 2.5) Download Zabbix repository package
+echo "📦 Downloading Zabbix repository package…"
+curl -L --progress-bar -o "${OVERLAY_RPMS}/zabbix-release-latest-7.4.el9.noarch.rpm" "https://repo.zabbix.com/zabbix/7.4/release/alma/9/noarch/zabbix-release-latest-7.4.el9.noarch.rpm"
+echo "✅ Zabbix repository package downloaded to ${OVERLAY_RPMS}"
 echo ""
 
 # 3) Download AlmaLinux ISO if missing
