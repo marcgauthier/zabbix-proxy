@@ -1,169 +1,107 @@
-#This script run on AlmaLinux and is creating a custom ISO for AlmaLinux using kickstart.ks
 #!/usr/bin/env bash
 set -euo pipefail
+
 if [[ $EUID -ne 0 ]]; then
   echo "❌ Please run as root." >&2
   exit 1
 fi
 
-### CONFIGURATION ###
+### === CONFIGURATION === ###
 ALMA_VERSION="9.6"
+ISO_LABEL="Custom_AlmaLinux_${ALMA_VERSION}"
 BASE_ISO_URL="https://repo.almalinux.org/almalinux/${ALMA_VERSION}/isos/x86_64/AlmaLinux-${ALMA_VERSION}-x86_64-minimal.iso"
+ISO_NAME="AlmaLinux-${ALMA_VERSION}-x86_64-minimal.iso"
 DOWNLOAD_DIR="./downloads"
-OVERLAY_DIR="./overlay"
+WORK_DIR="./work"
+MOUNT_DIR="./mnt_iso"
+OVERLAY_RPMS="${WORK_DIR}/Packages"
+OVERLAY_ROOT="${WORK_DIR}/root"
+OUTPUT_DIR="./iso"
+OUTPUT_ISO="${OUTPUT_DIR}/AlmaLinux-${ALMA_VERSION}-custom.iso"
 
-TEMP_DIR="./temp"
-KS_FILE="${TEMP_DIR}/kickstart.ks"
-OUTPUT_ISO="./iso/AlmaLinux-${ALMA_VERSION}-zabbix-proxy.iso"
-LOG_DIR="./logs"
+# URL to your install.sh
+INSTALL_SH_URL="https://raw.githubusercontent.com/marcgauthier/zabbix-proxy/main/install.sh"
 
-echo "🚀 Starting Zabbix Proxy ISO build process... version 1.1"
-echo "📋 Configuration:"
-echo "   - AlmaLinux version: ${ALMA_VERSION}"
-echo "   - Output ISO: ${OUTPUT_ISO}"
-echo "   - Download directory: ${DOWNLOAD_DIR}"
-echo "   - Overlay directory: ${OVERLAY_DIR}"
+# Zabbix packages to bundle
+ZABBIX_PKGS=( zabbix-proxy-mysql zabbix-agent2 )
+
+echo "🚀 Starting custom AlmaLinux ISO build…"
 echo ""
 
-### Create necessary directories if they don't exist ###
-echo "📁 Creating necessary directories..."
-mkdir -p "${DOWNLOAD_DIR}"
-mkdir -p "${OVERLAY_DIR}/pkgs"
-mkdir -p "$(dirname "${OUTPUT_ISO}")"
-mkdir -p "${LOG_DIR}"
-echo "✅ Directories created successfully"
+# 1) Install host tools
+echo "🔧 Installing build dependencies (dnf-plugins-core, createrepo_c, xorriso)…"
+dnf install -y dnf-plugins-core createrepo_c xorriso
 echo ""
 
-### Clear TEMP and OVERLAY directories and recreate them ###
-echo "🧹 Clearing TEMP directory..."
-rm -rf "${TEMP_DIR:?}" && mkdir -p "${TEMP_DIR}"
-echo "✅ TEMP directory cleared and recreated"
+# 2) Prepare directories
+echo "📁 Preparing directories…"
+rm -rf "${DOWNLOAD_DIR}" "${WORK_DIR}" "${MOUNT_DIR}" "${OUTPUT_DIR}"
+mkdir -p "${DOWNLOAD_DIR}" "${WORK_DIR}" "${MOUNT_DIR}" "${OVERLAY_RPMS}" "${OVERLAY_ROOT}" "${OUTPUT_DIR}"
+echo "✅ Directories ready"
 echo ""
 
-echo "🧹 Clearing OVERLAY directory..."
-rm -rf "${OVERLAY_DIR:?}" && mkdir -p "${OVERLAY_DIR}/pkgs"
-echo "✅ OVERLAY directory cleared and recreated"
-echo ""
-
-### 0) Download Zabbix repository RPM and install livemedia-creator ###
-echo "📥 Downloading Zabbix repository RPM..."
-# Download Zabbix repository RPM to overlay directory
-curl -fsSL -o "${OVERLAY_DIR}/pkgs/zabbix-release-latest-7.4.el9.noarch.rpm" "https://repo.zabbix.com/zabbix/7.4/release/alma/9/noarch/zabbix-release-latest-7.4.el9.noarch.rpm"
-echo "✅ Zabbix repository RPM downloaded to overlay"
-echo ""
-
-echo "🔑 Adding MySQL repository..."
-# Add MySQL repository for AlmaLinux 9
-cat > /etc/yum.repos.d/mysql-community.repo << EOF
-[mysql-connectors-community]
-name=MySQL Connectors Community
-baseurl=https://repo.mysql.com/yum/mysql-connectors-community/el/9/\$basearch/
-enabled=1
-gpgcheck=0
-
-[mysql-tools-community]
-name=MySQL Tools Community
-baseurl=https://repo.mysql.com/yum/mysql-tools-community/el/9/\$basearch/
-enabled=1
-gpgcheck=0
-
-[mysql80-community]
-name=MySQL 8.0 Community Server
-baseurl=https://repo.mysql.com/yum/mysql-8.0-community/el/9/\$basearch/
-enabled=1
-gpgcheck=0
-EOF
-echo "✅ MySQL repository added successfully"
-echo ""
-
-echo "📦 Updating package lists (this may take a while)..."
-dnf update -y
-echo "✅ Package lists updated"
-echo ""
-
-echo "🔧 Installing livemedia-creator if not already installed..."
-if ! command -v livemedia-creator &> /dev/null; then
-    echo "   Installing lorax-lmc-novirt package..."
-    dnf install -y lorax-lmc-novirt
-    echo "✅ livemedia-creator installed successfully"
+# 3) Download AlmaLinux ISO if missing
+if [[ ! -f "${DOWNLOAD_DIR}/${ISO_NAME}" ]]; then
+  echo "📥 Downloading AlmaLinux ${ALMA_VERSION} ISO…"
+  curl -L --progress-bar -o "${DOWNLOAD_DIR}/${ISO_NAME}" "${BASE_ISO_URL}"
+  echo "✅ ISO downloaded to ${DOWNLOAD_DIR}/${ISO_NAME}"
 else
-    echo "✅ livemedia-creator is already installed"
+  echo "✅ ISO already present, skipping download"
 fi
 echo ""
 
-### 0.1) Download kickstart.ks from GitHub repository ###
-echo "📥 Downloading kickstart.ks from GitHub repository..."
-KICKSTART_URL="https://raw.githubusercontent.com/marcgauthier/zabbix-proxy/refs/heads/main/kickstart.ks"
-# Remove existing kickstart.ks if it exists to ensure fresh download
-rm -f "${KS_FILE}"
-echo "   Downloading from: ${KICKSTART_URL}"
-curl -fsSL -o "${KS_FILE}" "${KICKSTART_URL}"
-echo "✅ kickstart.ks downloaded successfully"
+# 4) Download Zabbix RPMs
+echo "📦 Downloading Zabbix RPMs (+ dependencies)…"
+dnf download --resolve --alldeps --destdir "${OVERLAY_RPMS}" "${ZABBIX_PKGS[@]}"
+echo "✅ RPMs saved in ${OVERLAY_RPMS}"
 echo ""
 
-### 1) Download base AlmaLinux minimal ISO if needed ###
-if [[ ! -f "${DOWNLOAD_DIR}/AlmaLinux-${ALMA_VERSION}-x86_64-minimal.iso" ]]; then
-  echo "📥 Downloading AlmaLinux ${ALMA_VERSION} minimal ISO..."
-  echo "   This is a large file (~2GB), please be patient..."
-  echo "   Download URL: ${BASE_ISO_URL}"
-  curl -fsSL -o "${DOWNLOAD_DIR}/AlmaLinux-${ALMA_VERSION}-x86_64-minimal.iso" "${BASE_ISO_URL}"
-  echo "✅ AlmaLinux ${ALMA_VERSION} minimal ISO downloaded successfully"
-else
-  echo "✅ AlmaLinux ${ALMA_VERSION} minimal ISO already exists, skipping download"
-fi
+# 5) Download install.sh
+echo "📥 Downloading install.sh…"
+curl -L --progress-bar -o "${OVERLAY_ROOT}/install.sh" "${INSTALL_SH_URL}"
+chmod +x "${OVERLAY_ROOT}/install.sh"
+echo "✅ install.sh saved in ${OVERLAY_ROOT}"
 echo ""
 
-### 2) Download required packages + install.sh into OVERLAY_DIR ###
-echo "📦 Downloading Zabbix & MySQL packages + dependencies..."
-echo "   This may take several minutes depending on your internet connection..."
-echo "   Downloading packages to: ${OVERLAY_DIR}/pkgs"
-# Download packages using dnf download to OVERLAY_DIR
-# Using correct package names for AlmaLinux 9
-(cd "${OVERLAY_DIR}/pkgs" && dnf download --resolve zabbix-proxy-mysql zabbix-agent2 mysql-community-server mysql-community-client)
-echo "✅ All packages downloaded successfully"
+# 6) Mount ISO and copy its contents
+echo "🔨 Mounting ISO and copying contents to work tree…"
+mount -o loop "${DOWNLOAD_DIR}/${ISO_NAME}" "${MOUNT_DIR}"
+rsync -a "${MOUNT_DIR}/" "${WORK_DIR}/"
+umount "${MOUNT_DIR}"
+echo "✅ Base ISO contents in ${WORK_DIR}"
 echo ""
 
-### 2.1) Download install.sh from GitHub repository ###
-echo "📥 Downloading install.sh from GitHub repository..."
-INSTALL_SH_URL="https://raw.githubusercontent.com/marcgauthier/zabbix-proxy/refs/heads/main/install.sh"
-if [[ ! -f "${OVERLAY_DIR}/install.sh" ]]; then
-    echo "   Downloading from: ${INSTALL_SH_URL}"
-    curl -fsSL -o "${OVERLAY_DIR}/install.sh" "${INSTALL_SH_URL}"
-    chmod +x "${OVERLAY_DIR}/install.sh"
-    echo "✅ install.sh downloaded and made executable"
-else
-    echo "✅ install.sh already exists, skipping download"
-fi
+# 7) Copy in RPMs & install script
+echo "📂 Injecting custom RPMs and scripts…"
+cp "${OVERLAY_RPMS}/"*.rpm "${WORK_DIR}/Packages/"
+mkdir -p "${WORK_DIR}/root"
+cp "${OVERLAY_ROOT}/install.sh" "${WORK_DIR}/root/"
+echo "✅ Files injected"
 echo ""
 
-### 3) Invoke livemedia-creator to build an installation ISO ###
-echo "🔨 Building custom installation ISO..."
-echo "   This is the most time-consuming step (10-30 minutes depending on system performance)..."
-echo "   Log file will be saved to: ${LOG_DIR}/livemedia.log"
-echo "   Please be patient, this process includes:"
-echo "     - Extracting base ISO"
-echo "     - Installing packages"
-echo "     - Configuring system"
-echo "     - Creating final ISO image"
+# 8) Re-generate yum repo metadata so the installer sees your RPMs
+echo "📋 Rebuilding repo metadata…"
+createrepo_c --update "${WORK_DIR}"
+echo "✅ Repo metadata updated"
 echo ""
-livemedia-creator \
-  --title "Zabbix Proxy Installer" \
-  --ks "${KS_FILE}" \
-  --releasever "${ALMA_VERSION}" \
-  --copy-in "${OVERLAY_DIR}:/files" \
-  --project "ZabbixProxyInstaller" \
-  --make-iso \
-  --iso "${OUTPUT_ISO}" \
-  --no-virt \
-  --logfile "${LOG_DIR}/livemedia.log"
 
+# 9) Build new ISO (BIOS + UEFI bootable)
+echo "🛠️  Generating bootable ISO…"
+xorriso -as mkisofs \
+  -iso-level 3 \
+  -volid "${ISO_LABEL}" \
+  -eltorito-boot isolinux/isolinux.bin \
+    -eltorito-catalog isolinux/boot.cat \
+    -no-emul-boot \
+    -boot-load-size 4 \
+    -boot-info-table \
+  -eltorito-alt-boot \
+    -e images/efiboot.img \
+    -no-emul-boot \
+  -isohybrid-gpt-basdat \
+  -o "${OUTPUT_ISO}" \
+  "${WORK_DIR}"
+echo "✅ Custom ISO created at ${OUTPUT_ISO}"
 echo ""
-echo "🎉 Build process completed successfully!"
-echo "✅ Your custom Zabbix Proxy ISO is ready: ${OUTPUT_ISO}"
-echo "📊 Build summary:"
-echo "   - Base ISO: AlmaLinux ${ALMA_VERSION} minimal"
-echo "   - Added packages: Zabbix Proxy MySQL, Zabbix Agent2, MySQL Server"
-echo "   - Custom scripts: install.sh"
-echo "   - Log file: ${LOG_DIR}/livemedia.log"
-echo ""
-echo "🚀 You can now use this ISO to install Zabbix Proxy on your systems!"
+
+echo "🎉 All done! You can now burn or deploy ${OUTPUT_ISO}."
