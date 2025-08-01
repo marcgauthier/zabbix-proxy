@@ -6,7 +6,7 @@ if [[ $EUID -ne 0 ]]; then
   exit 1
 fi
 
-echo "🚀 Starting Zabbix Proxy ISO build process... version 1.31"
+echo "🚀 Starting Zabbix Proxy ISO build process... version 1.32"
 
 
 ### === CONFIGURATION === ###
@@ -97,7 +97,8 @@ echo ""
 
 # 7) Copy in RPMs & install script
 echo "📂 Injecting custom RPMs and scripts…"
-cp "${OVERLAY_RPMS}/"*.rpm "${WORK_DIR}/Packages/"
+# Copy RPMs, overwriting any existing ones
+cp -f "${OVERLAY_RPMS}/"*.rpm "${WORK_DIR}/Packages/" 2>/dev/null || true
 mkdir -p "${WORK_DIR}/root"
 cp "${OVERLAY_ROOT}/install.sh" "${WORK_DIR}/root/"
 echo "✅ Files injected"
