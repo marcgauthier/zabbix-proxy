@@ -149,7 +149,6 @@ echo ""
 livemedia-creator \
   --ks "${KS_FILE}" \
   --releasever "${ALMA_VERSION}" \
-  --source "${DOWNLOAD_DIR}/AlmaLinux-${ALMA_VERSION}-x86_64-minimal.iso" \
   --copy-overlay "${OVERLAY_DIR}" \
   --project "ZabbixProxyInstaller" \
   --make-iso \
