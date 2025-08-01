@@ -6,7 +6,7 @@ if [[ $EUID -ne 0 ]]; then
   exit 1
 fi
 
-echo "🚀 Starting Zabbix Proxy ISO build process... version 1.28"
+echo "🚀 Starting Zabbix Proxy ISO build process... version 1.29"
 
 
 ### === CONFIGURATION === ###
@@ -44,6 +44,11 @@ echo ""
 
 # 2) Prepare directories
 echo "📁 Preparing directories…"
+# Safely unmount if still mounted from previous run
+if mountpoint -q "${MOUNT_DIR}"; then
+  echo "🔓 Unmounting existing mount point..."
+  umount "${MOUNT_DIR}"
+fi
 rm -rf "${DOWNLOAD_DIR}" "${WORK_DIR}" "${MOUNT_DIR}" "${OUTPUT_DIR}"
 mkdir -p "${DOWNLOAD_DIR}" "${WORK_DIR}" "${MOUNT_DIR}" "${OVERLAY_RPMS}" "${OVERLAY_ROOT}" "${OUTPUT_DIR}"
 echo "✅ Directories ready"
