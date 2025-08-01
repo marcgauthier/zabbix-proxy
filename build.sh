@@ -34,10 +34,15 @@ mkdir -p "${LOG_DIR}"
 echo "✅ Directories created successfully"
 echo ""
 
-### Clear TEMP directory and recreate it ###
+### Clear TEMP and OVERLAY directories and recreate them ###
 echo "🧹 Clearing TEMP directory..."
 rm -rf "${TEMP_DIR:?}" && mkdir -p "${TEMP_DIR}"
 echo "✅ TEMP directory cleared and recreated"
+echo ""
+
+echo "🧹 Clearing OVERLAY directory..."
+rm -rf "${OVERLAY_DIR:?}" && mkdir -p "${OVERLAY_DIR}/pkgs"
+echo "✅ OVERLAY directory cleared and recreated"
 echo ""
 
 ### 0) Add Zabbix repository and install livemedia-creator ###
