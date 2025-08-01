@@ -17,7 +17,7 @@ KS_FILE="${TEMP_DIR}/kickstart.ks"
 OUTPUT_ISO="./iso/AlmaLinux-${ALMA_VERSION}-zabbix-proxy.iso"
 LOG_DIR="./logs"
 
-echo "🚀 Starting Zabbix Proxy ISO build process... version 1.0"
+echo "🚀 Starting Zabbix Proxy ISO build process... version 1.1"
 echo "📋 Configuration:"
 echo "   - AlmaLinux version: ${ALMA_VERSION}"
 echo "   - Output ISO: ${OUTPUT_ISO}"
@@ -149,7 +149,7 @@ echo ""
 livemedia-creator \
   --ks "${KS_FILE}" \
   --releasever "${ALMA_VERSION}" \
-  --copy-overlay "${OVERLAY_DIR}" \
+  --copy-in "${OVERLAY_DIR}:/" \
   --project "ZabbixProxyInstaller" \
   --make-iso \
   --iso "${OUTPUT_ISO}" \
