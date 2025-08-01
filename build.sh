@@ -6,7 +6,7 @@ if [[ $EUID -ne 0 ]]; then
   exit 1
 fi
 
-echo "🚀 Starting Zabbix Proxy ISO build process... version 1.29"
+echo "🚀 Starting Zabbix Proxy ISO build process... version 1.30"
 
 
 ### === CONFIGURATION === ###
@@ -54,10 +54,14 @@ mkdir -p "${DOWNLOAD_DIR}" "${WORK_DIR}" "${MOUNT_DIR}" "${OVERLAY_RPMS}" "${OVE
 echo "✅ Directories ready"
 echo ""
 
-# 2.5) Download Zabbix repository package
+# 2.5) Download and install Zabbix repository package
 echo "📦 Downloading Zabbix repository package…"
 curl -L --progress-bar -o "${OVERLAY_RPMS}/zabbix-release-latest-7.4.el9.noarch.rpm" "https://repo.zabbix.com/zabbix/7.4/release/alma/9/noarch/zabbix-release-latest-7.4.el9.noarch.rpm"
 echo "✅ Zabbix repository package downloaded to ${OVERLAY_RPMS}"
+
+echo "🔧 Installing Zabbix repository on build system…"
+dnf install -y "${OVERLAY_RPMS}/zabbix-release-latest-7.4.el9.noarch.rpm"
+echo "✅ Zabbix repository installed"
 echo ""
 
 # 3) Download AlmaLinux ISO if missing
