@@ -6,6 +6,8 @@ if [[ $EUID -ne 0 ]]; then
   exit 1
 fi
 
+echo "🚀 Starting Zabbix Proxy ISO build process... version 1.25"
+
 ### === CONFIGURATION === ###
 ALMA_VERSION="9.6"
 ISO_LABEL="Custom_AlmaLinux_${ALMA_VERSION}"
