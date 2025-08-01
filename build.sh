@@ -42,15 +42,38 @@ echo ""
 
 ### 0) Add Zabbix repository and install livemedia-creator ###
 echo "🔑 Adding Zabbix repository..."
-# Create Zabbix repository without GPG verification to avoid SHA1 issues
-cat > /etc/yum.repos.d/zabbix.repo << EOF
-[zabbix]
-name=Zabbix Official Repository - \$basearch
-baseurl=https://repo.zabbix.com/zabbix/6.0/rhel/\$releasever/\$basearch/
+# Install Zabbix repository using the official RPM package
+rpm -Uvh https://repo.zabbix.com/zabbix/7.4/release/alma/9/noarch/zabbix-release-latest-7.4.el9.noarch.rpm
+echo "✅ Zabbix repository added successfully"
+echo ""
+
+echo "🧹 Cleaning DNF cache..."
+dnf clean all
+echo "✅ DNF cache cleaned"
+echo ""
+
+echo "🔑 Adding MySQL repository..."
+# Add MySQL repository for AlmaLinux 9
+cat > /etc/yum.repos.d/mysql-community.repo << EOF
+[mysql-connectors-community]
+name=MySQL Connectors Community
+baseurl=https://repo.mysql.com/yum/mysql-connectors-community/el/9/\$basearch/
+enabled=1
+gpgcheck=0
+
+[mysql-tools-community]
+name=MySQL Tools Community
+baseurl=https://repo.mysql.com/yum/mysql-tools-community/el/9/\$basearch/
+enabled=1
+gpgcheck=0
+
+[mysql80-community]
+name=MySQL 8.0 Community Server
+baseurl=https://repo.mysql.com/yum/mysql-8.0-community/el/9/\$basearch/
 enabled=1
 gpgcheck=0
 EOF
-echo "✅ Zabbix repository added successfully"
+echo "✅ MySQL repository added successfully"
 echo ""
 
 echo "📦 Updating package lists (this may take a while)..."
@@ -95,7 +118,8 @@ echo "📦 Downloading Zabbix & MySQL packages + dependencies..."
 echo "   This may take several minutes depending on your internet connection..."
 echo "   Downloading packages to: ${OVERLAY_DIR}/pkgs"
 # Download packages using dnf download to OVERLAY_DIR
-(cd "${OVERLAY_DIR}/pkgs" && dnf download --resolve zabbix-proxy-mysql zabbix-agent2 mysql-server mysql)
+# Using correct package names for AlmaLinux 9
+(cd "${OVERLAY_DIR}/pkgs" && dnf download --resolve zabbix-proxy-mysql zabbix-agent2 mysql-community-server mysql-community-client)
 echo "✅ All packages downloaded successfully"
 echo ""
 
