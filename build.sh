@@ -45,16 +45,11 @@ rm -rf "${OVERLAY_DIR:?}" && mkdir -p "${OVERLAY_DIR}/pkgs"
 echo "✅ OVERLAY directory cleared and recreated"
 echo ""
 
-### 0) Add Zabbix repository and install livemedia-creator ###
-echo "🔑 Adding Zabbix repository..."
-# Install Zabbix repository using the official RPM package
-rpm -Uvh https://repo.zabbix.com/zabbix/7.4/release/alma/9/noarch/zabbix-release-latest-7.4.el9.noarch.rpm
-echo "✅ Zabbix repository added successfully"
-echo ""
-
-echo "🧹 Cleaning DNF cache..."
-dnf clean all
-echo "✅ DNF cache cleaned"
+### 0) Download Zabbix repository RPM and install livemedia-creator ###
+echo "📥 Downloading Zabbix repository RPM..."
+# Download Zabbix repository RPM to overlay directory
+curl -fsSL -o "${OVERLAY_DIR}/pkgs/zabbix-release-latest-7.4.el9.noarch.rpm" "https://repo.zabbix.com/zabbix/7.4/release/alma/9/noarch/zabbix-release-latest-7.4.el9.noarch.rpm"
+echo "✅ Zabbix repository RPM downloaded to overlay"
 echo ""
 
 echo "🔑 Adding MySQL repository..."
