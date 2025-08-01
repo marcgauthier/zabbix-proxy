@@ -6,7 +6,7 @@ if [[ $EUID -ne 0 ]]; then
   exit 1
 fi
 
-echo "🚀 Starting Zabbix Proxy ISO build process... version 1.30"
+echo "🚀 Starting Zabbix Proxy ISO build process... version 1.31"
 
 
 ### === CONFIGURATION === ###
@@ -38,8 +38,8 @@ echo "🚀 Starting custom AlmaLinux ISO build…"
 echo ""
 
 # 1) Install host tools
-echo "🔧 Installing build dependencies (dnf-plugins-core, createrepo_c, xorriso)…"
-dnf install -y dnf-plugins-core createrepo_c xorriso
+echo "🔧 Installing build dependencies (dnf-plugins-core, createrepo_c, xorriso, rsync)…"
+dnf install -y dnf-plugins-core createrepo_c xorriso rsync
 echo ""
 
 # 2) Prepare directories
